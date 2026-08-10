@@ -2,7 +2,7 @@
 //  TicketGenerator.swift
 //  EuroOpt
 //
-//  Alpha 6.5
+//  Alpha 7.4 Test
 //
 
 import Foundation
@@ -16,8 +16,13 @@ final class TicketGenerator {
     func generate(
         count: Int,
         draws: [EuroJackpotDraw],
-        hillClimbingIterations: Int = AppSettings.hillClimbingIterations
+        hillClimbingIterations: Int = AppSettings.hillClimbingIterations,
+        goal: OptimizationGoal? = nil
     ) -> [Ticket] {
+
+        if let goal {
+            scoreEngine.updateGoal(goal)
+        }
 
         print("🎲 Erzeuge \(count) Spielsysteme...")
 
@@ -49,8 +54,6 @@ final class TicketGenerator {
             $0.quick > $1.quick
         }
 
-        // MARK: - Survivor-Auswahl
-
         let survivorCount: Int
 
         if count == AppSettings.backtestCandidateCount {
@@ -76,18 +79,16 @@ final class TicketGenerator {
         let start = Date()
 
         var result: [Ticket] = []
-        result.reserveCapacity(survivorCount)
+        result.reserveCapacity(survivors.count)
 
         for survivor in survivors {
 
             result.append(
-
                 improve(
                     ticket: survivor.ticket,
                     draws: draws,
                     iterations: hillClimbingIterations
                 )
-
             )
 
         }
@@ -100,8 +101,6 @@ final class TicketGenerator {
         return result
 
     }
-
-    // MARK: - Hill Climbing
 
     @inline(__always)
     private func improve(
@@ -145,8 +144,6 @@ final class TicketGenerator {
 
     }
 
-    // MARK: - Zufallsticket
-
     @inline(__always)
     private func randomTicket() -> Ticket {
 
@@ -168,8 +165,6 @@ final class TicketGenerator {
         )
 
     }
-
-    // MARK: - Qualitätsprüfung
 
     @inline(__always)
     private func isValid(
@@ -248,4 +243,3 @@ final class TicketGenerator {
     }
 
 }
-
