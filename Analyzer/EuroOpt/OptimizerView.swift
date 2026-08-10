@@ -2,7 +2,7 @@
 //  OptimizerView.swift
 //  EuroOpt
 //
-//  Alpha 7.4 - Performance
+//  Alpha 7.5
 //
 
 import SwiftUI
@@ -21,6 +21,7 @@ struct OptimizerView: View {
                 headerSection
                 settingsSection
                 actionSection
+                learningSection
                 recommendationsSection
                 backtestSection
 
@@ -42,7 +43,7 @@ struct OptimizerView: View {
                 .font(.largeTitle)
                 .bold()
 
-            Text("EuroOpt Alpha 7.4")
+            Text("EuroOpt Alpha 7.5")
                 .font(.headline)
 
             Text("Generiert Kandidaten und bewertet daraus die besten Empfehlungen.")
@@ -112,7 +113,7 @@ struct OptimizerView: View {
 
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning)
+            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning)
 
             Button {
 
@@ -128,7 +129,71 @@ struct OptimizerView: View {
 
             }
             .buttonStyle(.bordered)
-            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning)
+            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning)
+
+        }
+
+    }
+
+    // MARK: - 🧠 Lernen
+
+    private var learningSection: some View {
+
+        GroupBox("🧠 Gewichte lernen") {
+
+            VStack(alignment: .leading, spacing: 12) {
+
+                Text("Walk-Forward-Lernen passt die EQI-Gewichte aus der bisherigen Historie an.")
+                    .foregroundStyle(.secondary)
+
+                Text("Aktuelles Profil")
+                    .font(.subheadline)
+                    .bold()
+
+                Text(viewModel.learnedProfileText)
+                    .font(.system(.body, design: .monospaced))
+
+                Button {
+                    viewModel.startLearning()
+                } label: {
+                    if viewModel.isLearning {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("Gewichte lernen", systemImage: "brain.head.profile")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isLearning || viewModel.isCalculating || viewModel.isBacktestRunning)
+
+                Button("Standardprofil wiederherstellen") {
+                    viewModel.resetLearnedWeights()
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewModel.isLearning || viewModel.isCalculating || viewModel.isBacktestRunning)
+
+                Text(viewModel.learningStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                if let result = viewModel.learningResult {
+                    Divider()
+
+                    Text("Letzter Lernlauf")
+                        .font(.subheadline)
+                        .bold()
+
+                    Text(String(format: "Ø Haupttreffer: %.3f   |   Ø Eurotreffer: %.3f", result.averageHits, result.averageEuroHits))
+                        .font(.footnote)
+
+                    Text("Getestete Ziehungen: \(result.testedDraws)   |   Profiländerungen: \(result.improvedSteps)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
         }
 
