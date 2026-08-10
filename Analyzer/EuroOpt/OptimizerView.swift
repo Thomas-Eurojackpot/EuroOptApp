@@ -20,6 +20,7 @@ struct OptimizerView: View {
                 actionSection
                 learningSection
                 holdoutSection
+                randomBenchmarkSection
                 confirmationSection
                 recommendationsSection
                 backtestSection
@@ -85,6 +86,7 @@ struct OptimizerView: View {
                 viewModel.isBacktestRunning ||
                 viewModel.isLearning ||
                 viewModel.isHoldoutRunning ||
+                viewModel.isRandomBenchmarkRunning ||
                 viewModel.isConfirmationRunning
             )
 
@@ -100,6 +102,7 @@ struct OptimizerView: View {
                 viewModel.isBacktestRunning ||
                 viewModel.isLearning ||
                 viewModel.isHoldoutRunning ||
+                viewModel.isRandomBenchmarkRunning ||
                 viewModel.isConfirmationRunning
             )
 
@@ -120,6 +123,7 @@ struct OptimizerView: View {
                 viewModel.isBacktestRunning ||
                 viewModel.isLearning ||
                 viewModel.isHoldoutRunning ||
+                viewModel.isRandomBenchmarkRunning ||
                 viewModel.isConfirmationRunning
             )
         }
@@ -155,6 +159,7 @@ struct OptimizerView: View {
                     viewModel.isCalculating ||
                     viewModel.isBacktestRunning ||
                     viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
                     viewModel.isConfirmationRunning
                 )
 
@@ -167,6 +172,7 @@ struct OptimizerView: View {
                     viewModel.isCalculating ||
                     viewModel.isBacktestRunning ||
                     viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
                     viewModel.isConfirmationRunning
                 )
 
@@ -207,6 +213,45 @@ struct OptimizerView: View {
         }
     }
 
+    private var randomBenchmarkSection: some View {
+        GroupBox("🎲 Empirischer Zufallsbenchmark") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Vergleicht den Holdout mit echten, empirisch erzeugten Zufallstipps – ohne EQI, Gewichte oder historische Auswahlkriterien.")
+                    .foregroundStyle(.secondary)
+
+                Text("Kandidatenanzahl, Tippanzahl, Hauptzahl-Validierung und Diversitätsregel entsprechen dem Holdout-Test. Die Eurozahlen berücksichtigen das historische 10/12-Format.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    viewModel.runRandomBenchmark()
+                } label: {
+                    if viewModel.isRandomBenchmarkRunning {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("Zufallsbenchmark starten", systemImage: "dice")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isConfirmationRunning
+                )
+
+                Text(viewModel.randomBenchmarkStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private var confirmationSection: some View {
         GroupBox("🧪 G/U-Bestätigungstest") {
             VStack(alignment: .leading, spacing: 10) {
@@ -234,7 +279,8 @@ struct OptimizerView: View {
                     viewModel.isCalculating ||
                     viewModel.isBacktestRunning ||
                     viewModel.isLearning ||
-                    viewModel.isHoldoutRunning
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning
                 )
 
                 Text(viewModel.confirmationStatus)
