@@ -37,10 +37,9 @@ final class ComponentBacktestEngine {
             ($0.name, Accumulator())
         })
 
-        // Important: every model receives exactly the same candidate pool for
-        // a given target draw. Candidate generation is deliberately kept
-        // separate from component scoring so this test isolates the EQI
-        // selection logic instead of changing the search space per model.
+        // Every model receives exactly the same candidate pool for a given
+        // target draw. Candidate generation is deliberately kept separate
+        // from component scoring so this test isolates EQI selection logic.
         let generator = TicketGenerator()
         let candidateCount = max(AppSettings.backtestCandidateCount + 1, 501)
 
@@ -109,10 +108,11 @@ final class ComponentBacktestEngine {
             let averageHits = Double(total.hits) / Double(total.tickets)
             let averageEuroHits = Double(total.euroHits) / Double(total.tickets)
             let delta = averageHits - randomMain
+            let label = model.name.padding(toLength: 42, withPad: " ", startingAt: 0)
 
             print(String(
-                format: "%-42s %.3f     %.3f     %+.3f",
-                model.name,
+                format: "%@ %.3f     %.3f     %+.3f",
+                label,
                 averageHits,
                 averageEuroHits,
                 delta
@@ -123,7 +123,7 @@ final class ComponentBacktestEngine {
         print(String(format: "Zufall theoretisch                         %.3f     %.3f", randomMain, randomEuro))
         print("")
         print("Hinweis: Eurozahlen werden aktuell von keinem EQI-Modul bewertet.")
-        print("Der Komponententest misst daher dort bewusst nur die Auswahlwirkung.")
+        print("Der Komponententest misst dort bewusst nur die Auswahlwirkung.")
         print("")
         print(String(format: "⏱ Komponententest: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
