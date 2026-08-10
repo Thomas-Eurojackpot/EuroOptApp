@@ -60,7 +60,7 @@ final class LearningEngine {
         print("===================================")
         print("Getestete Ziehungen : \(draws.count - 50)")
         print("Kandidaten je Test  : \(learningCandidateCount)")
-        print("Empfehlungen        : \(\(recommendationCount))")
+        print("Empfehlungen        : \(recommendationCount)")
         print("Hill Climbing       : \(learningHillClimbingIterations)")
         print("🧠 Adaptives Lernen : WALK-FORWARD")
         print("===================================")
