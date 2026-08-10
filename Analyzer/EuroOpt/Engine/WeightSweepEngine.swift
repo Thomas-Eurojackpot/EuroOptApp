@@ -25,11 +25,7 @@ final class WeightSweepEngine {
     private let profileCount = 32
     private let candidateCountMinimum = 301
 
-    func run(
-        draws: [EuroJackpotDraw],
-        recommendationCount: Int
-    ) {
-
+    func run(draws: [EuroJackpotDraw], recommendationCount: Int) {
         guard draws.count > 140 else {
             print("❌ Weight-Sweep: zu wenige Ziehungen")
             return
@@ -42,7 +38,6 @@ final class WeightSweepEngine {
         let profiles = makeProfiles()
         let generator = TicketGenerator()
         let candidateCount = max(AppSettings.backtestCandidateCount + 1, candidateCountMinimum)
-
         var validationTotals = Array(repeating: Aggregate(), count: profiles.count)
 
         print("")
@@ -64,30 +59,19 @@ final class WeightSweepEngine {
         for index in 100..<holdoutStart {
             let trainingDraws = Array(draws.prefix(index))
             let targetDraw = draws[index]
-            let candidates = generator.generate(
-                count: candidateCount,
-                draws: trainingDraws,
-                goal: OptimizationGoal(),
-                hillClimbingIterations: 0
-            )
-
+            let candidates = generator.generate(count: candidateCount, draws: trainingDraws, goal: OptimizationGoal(), hillClimbingIterations: 0)
             let cache = ScoreCache(draws: trainingDraws)
             let scoreEngines = profiles.map { ScoreEngine(cache: cache, goal: $0.goal) }
 
             for profileIndex in profiles.indices {
-                let best = bestTickets(
-                    candidates: candidates,
-                    scoreEngine: scoreEngines[profileIndex],
-                    limit: recommendationCount
-                )
+                let best = bestTickets(candidates: candidates, scoreEngine: scoreEngines[profileIndex], limit: recommendationCount)
                 let hits = best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
                 let euroHits = best.reduce(0) { $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count }
-                let expectedEuroHits = expectedEuroHits(for: targetDraw.date, ticketCount: best.count)
-
+                let expectedForTest = expectedEuroHitsForTickets(for: targetDraw.date, ticketCount: best.count)
                 validationTotals[profileIndex].hits += hits
                 validationTotals[profileIndex].euroHits += euroHits
                 validationTotals[profileIndex].tickets += best.count
-                validationTotals[profileIndex].expectedEuroHits += expectedEuroHits
+                validationTotals[profileIndex].expectedEuroHits += expectedForTest
             }
 
             if (index - 99).isMultiple(of: 50) {
@@ -98,13 +82,9 @@ final class WeightSweepEngine {
         let ranked = profiles.indices.sorted { lhs, rhs in
             validationScore(validationTotals[lhs]) > validationScore(validationTotals[rhs])
         }
-
         guard let winnerIndex = ranked.first else { return }
         let winner = profiles[winnerIndex]
         let winnerValidation = validationTotals[winnerIndex]
-        let validationAverage = averageMain(winnerValidation)
-        let validationEuroAverage = averageEuro(winnerValidation)
-        let validationEuroExpected = averageExpectedEuro(winnerValidation)
 
         print("")
         print("-----------------------------------")
@@ -113,22 +93,14 @@ final class WeightSweepEngine {
         for (rank, profileIndex) in ranked.prefix(10).enumerated() {
             let total = validationTotals[profileIndex]
             print(String(format: "%2d. P%02d  Haupt %.3f  Euro %.3f  Basis %.3f  Score %+.3f  %@",
-                         rank + 1,
-                         profiles[profileIndex].id,
-                         averageMain(total),
-                         averageEuro(total),
-                         averageExpectedEuro(total),
-                         validationScore(total),
-                         weightLabel(profiles[profileIndex])))
+                         rank + 1, profiles[profileIndex].id, averageMain(total), averageEuro(total),
+                         averageExpectedEuro(total), validationScore(total), weightLabel(profiles[profileIndex])))
         }
 
         print("")
         print("🏆 GEWÄHLTES VALIDATION-PROFIL P\(String(format: "%02d", winner.id))")
         print(String(format: "Haupt %.3f | Euro %.3f | Euro-Basis %.3f | kombinierter Überschuss %+.3f",
-                     validationAverage,
-                     validationEuroAverage,
-                     validationEuroExpected,
-                     validationScore(winnerValidation)))
+                     averageMain(winnerValidation), averageEuro(winnerValidation), averageExpectedEuro(winnerValidation), validationScore(winnerValidation)))
         print(weightLabel(winner))
         print("")
         print("🔒 Jetzt erst folgt der unabhängige Holdout-Test.")
@@ -141,24 +113,14 @@ final class WeightSweepEngine {
         for index in holdoutStart..<draws.count {
             let trainingDraws = Array(draws.prefix(index))
             let targetDraw = draws[index]
-            let candidates = generator.generate(
-                count: candidateCount,
-                draws: trainingDraws,
-                goal: OptimizationGoal(),
-                hillClimbingIterations: 0
-            )
+            let candidates = generator.generate(count: candidateCount, draws: trainingDraws, goal: OptimizationGoal(), hillClimbingIterations: 0)
             let cache = ScoreCache(draws: trainingDraws)
             let winnerScoreEngine = ScoreEngine(cache: cache, goal: winner.goal)
-            let best = bestTickets(
-                candidates: candidates,
-                scoreEngine: winnerScoreEngine,
-                limit: recommendationCount
-            )
-
+            let best = bestTickets(candidates: candidates, scoreEngine: winnerScoreEngine, limit: recommendationCount)
             holdoutHits += best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
             holdoutEuroHits += best.reduce(0) { $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count }
             holdoutTickets += best.count
-            holdoutExpectedEuroHits += expectedEuroHits(for: targetDraw.date, ticketCount: best.count)
+            holdoutExpectedEuroHits += expectedEuroHitsForTickets(for: targetDraw.date, ticketCount: best.count)
 
             let current = index - holdoutStart + 1
             if current.isMultiple(of: 50) {
@@ -192,16 +154,7 @@ final class WeightSweepEngine {
         print("===================================")
     }
 
-    // Pre-registered confirmation of the already selected G/U-only profile.
-    // This does not select or tune weights. It is a fresh calculation on the
-    // latest 100 draws, but those draws were already part of the previous
-    // holdout, so this is a confirmation slice, not a statistically independent
-    // second experiment. A truly independent experiment requires new draws.
-    func runGUConfirmation(
-        draws: [EuroJackpotDraw],
-        recommendationCount: Int,
-        windowSize: Int = 100
-    ) {
+    func runGUConfirmation(draws: [EuroJackpotDraw], recommendationCount: Int, windowSize: Int = 100) {
         guard draws.count > windowSize + 100 else {
             print("❌ G/U-Bestätigung: zu wenige Ziehungen")
             return
@@ -215,7 +168,7 @@ final class WeightSweepEngine {
         var hits = 0
         var euroHits = 0
         var tickets = 0
-        var expectedEuroHits = 0.0
+        var expectedEuroTotal = 0.0
 
         print("")
         print("===================================")
@@ -234,24 +187,14 @@ final class WeightSweepEngine {
         for index in firstIndex..<draws.count {
             let trainingDraws = Array(draws.prefix(index))
             let targetDraw = draws[index]
-            let candidates = generator.generate(
-                count: candidateCount,
-                draws: trainingDraws,
-                goal: OptimizationGoal(),
-                hillClimbingIterations: 0
-            )
+            let candidates = generator.generate(count: candidateCount, draws: trainingDraws, goal: OptimizationGoal(), hillClimbingIterations: 0)
             let cache = ScoreCache(draws: trainingDraws)
             let scoreEngine = ScoreEngine(cache: cache, goal: goal)
-            let best = bestTickets(
-                candidates: candidates,
-                scoreEngine: scoreEngine,
-                limit: recommendationCount
-            )
-
+            let best = bestTickets(candidates: candidates, scoreEngine: scoreEngine, limit: recommendationCount)
             hits += best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
             euroHits += best.reduce(0) { $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count }
             tickets += best.count
-            expectedEuroHits += expectedEuroHits(for: targetDraw.date, ticketCount: best.count)
+            expectedEuroTotal += expectedEuroHitsForTickets(for: targetDraw.date, ticketCount: best.count)
 
             let current = index - firstIndex + 1
             if current.isMultiple(of: 25) {
@@ -261,7 +204,7 @@ final class WeightSweepEngine {
 
         let average = tickets > 0 ? Double(hits) / Double(tickets) : 0
         let euroAverage = tickets > 0 ? Double(euroHits) / Double(tickets) : 0
-        let euroExpected = tickets > 0 ? expectedEuroHits / Double(tickets) : 0
+        let euroExpected = tickets > 0 ? expectedEuroTotal / Double(tickets) : 0
         let randomMain = 0.50
 
         print("")
@@ -283,19 +226,11 @@ final class WeightSweepEngine {
         print("===================================")
     }
 
-    private func bestTickets(
-        candidates: [Ticket],
-        scoreEngine: ScoreEngine,
-        limit: Int
-    ) -> [Ticket] {
-
+    private func bestTickets(candidates: [Ticket], scoreEngine: ScoreEngine, limit: Int) -> [Ticket] {
         guard !candidates.isEmpty else { return [] }
-        let scored = candidates.map { ($0, scoreEngine.score(ticket: $0)) }
-            .sorted { $0.1 > $1.1 }
-
+        let scored = candidates.map { ($0, scoreEngine.score(ticket: $0)) }.sorted { $0.1 > $1.1 }
         var result: [Ticket] = []
         result.reserveCapacity(limit)
-
         for candidate in scored {
             var different = true
             for existing in result {
@@ -309,7 +244,6 @@ final class WeightSweepEngine {
                 if result.count == limit { break }
             }
         }
-
         return result
     }
 
@@ -340,10 +274,9 @@ final class WeightSweepEngine {
         return mainDelta + euroDelta
     }
 
-    private func expectedEuroHits(for date: Date, ticketCount: Int) -> Double {
+    private func expectedEuroHitsForTickets(for date: Date, ticketCount: Int) -> Double {
         guard ticketCount > 0 else { return 0 }
-        let cutoff = euroFormatCutoverDate()
-        let expectedPerTicket = date < cutoff ? 0.400 : (1.0 / 3.0)
+        let expectedPerTicket = date < euroFormatCutoverDate() ? 0.400 : (1.0 / 3.0)
         return expectedPerTicket * Double(ticketCount)
     }
 
@@ -355,8 +288,6 @@ final class WeightSweepEngine {
 
     private func makeProfiles() -> [Profile] {
         var profiles: [Profile] = []
-
-        // 6 single-factor profiles.
         let singles: [[Double]] = [
             [100, 0, 0, 0, 0, 0],
             [0, 100, 0, 0, 0, 0],
@@ -365,12 +296,9 @@ final class WeightSweepEngine {
             [0, 0, 0, 0, 100, 0],
             [0, 0, 0, 0, 0, 100]
         ]
-
         for weights in singles {
             profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
         }
-
-        // 15 pairwise combinations at 50/50.
         for lhs in 0..<6 {
             for rhs in (lhs + 1)..<6 {
                 var weights = Array(repeating: 0.0, count: 6)
@@ -379,8 +307,6 @@ final class WeightSweepEngine {
                 profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
             }
         }
-
-        // 10 three-factor combinations at 34/33/33.
         for a in 0..<4 {
             for b in (a + 1)..<5 {
                 for c in (b + 1)..<6 {
@@ -392,28 +318,21 @@ final class WeightSweepEngine {
                 }
             }
         }
-
-        // One broad diversified baseline.
         let diversified = [20.0, 20.0, 15.0, 15.0, 15.0, 15.0]
         profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(diversified), weights: diversified))
-
         return Array(profiles.prefix(profileCount))
     }
 
     private func makeGoal(_ weights: [Double]) -> OptimizationGoal {
         OptimizationGoal(
-            frequencyWeight: weights[0],
-            pairWeight: weights[1],
-            evenOddWeight: weights[2],
-            highLowWeight: weights[3],
-            sumWeight: weights[4],
-            gapWeight: weights[5]
+            frequencyWeight: weights[0], pairWeight: weights[1], evenOddWeight: weights[2],
+            highLowWeight: weights[3], sumWeight: weights[4], gapWeight: weights[5]
         )
     }
 
     private func weightLabel(_ profile: Profile) -> String {
         String(format: "F %.0f | P %.0f | G/U %.0f | H/N %.0f | S %.0f | A %.0f",
-               profile.weights[0], profile.weights[1], profile.weights[2],
-               profile.weights[3], profile.weights[4], profile.weights[5])
+               profile.weights[0], profile.weights[1], profile.weights[2], profile.weights[3],
+               profile.weights[4], profile.weights[5])
     }
 }
