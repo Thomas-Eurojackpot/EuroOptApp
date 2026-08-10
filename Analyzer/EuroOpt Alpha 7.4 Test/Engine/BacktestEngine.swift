@@ -102,6 +102,47 @@ final class BacktestEngine {
             print("\(prize.prizeClass) : \(prize.count)")
         }
 
+        // -------------------------------------------------------------
+        // Unabhängiger Quicktipp-Kontrolltest
+        // -------------------------------------------------------------
+        // Exakt derselbe Holdout wie im Backtest: dieselben 50 Zielziehungen.
+        // Die acht real gespielten Quicktipp-Felder werden weder optimiert
+        // noch aus historischen Treffern ausgewählt.
+        let holdout = Array(draws[50..<(50 + maxTests)])
+
+        if let comparison = QuicktippBenchmark.compare(
+            modelResults: results,
+            holdout: holdout
+        ) {
+            print("")
+            print("===================================")
+            print("🎟 QUICKTIPP – HOLDOUT-KONTROLLTEST")
+            print("===================================")
+            print("Spielfelder          : 8")
+            print("Gleicher Holdout     : JA")
+            print("Gepaarter Vergleich  : JA")
+            print("95-%-KI              : t-Verteilung, df = 49")
+            print("")
+            print(String(format: "Ø Modell Haupt      : %.4f", comparison.modelMain))
+            print(String(format: "Ø Quicktipp Haupt   : %.4f", comparison.quicktippMain))
+            print(String(format: "Δ Modell - Quicktipp: %+0.4f", comparison.deltaMain))
+            print(String(format: "95%% CI Δ Haupt      : ±%.4f", comparison.ci95Main))
+            print("")
+            print(String(format: "Ø Modell Euro       : %.4f", comparison.modelEuro))
+            print(String(format: "Ø Quicktipp Euro    : %.4f", comparison.quicktippEuro))
+            print(String(format: "Δ Modell - Quicktipp: %+0.4f", comparison.deltaEuro))
+            print(String(format: "95%% CI Δ Euro      : ±%.4f", comparison.ci95Euro))
+            print("")
+            print(String(format: "Δ kombiniert        : %+0.4f", comparison.deltaCombined))
+            print(String(format: "95%% CI Δ kombiniert : ±%.4f", comparison.ci95Combined))
+            print("")
+            print("Interpretation:")
+            print("- Die acht Quicktipp-Felder wurden unverändert als unabhängige Kontrollgruppe verwendet.")
+            print("- Modell und Quicktipp wurden auf exakt denselben Holdout-Ziehungen gepaart.")
+            print("- Der Holdout wurde nicht zur Auswahl oder Veränderung der Quicktipps verwendet.")
+            print("- Das KI basiert auf den Ziehungsebene-Differenzen und dem t-Wert für df = 49.")
+        }
+
         print("")
         print(String(format: "Laufzeit : %.2f Sekunden", duration))
         print("===================================")
