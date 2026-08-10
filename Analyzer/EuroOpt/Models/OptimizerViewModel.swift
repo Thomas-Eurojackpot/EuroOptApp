@@ -25,6 +25,9 @@ final class OptimizerViewModel: ObservableObject {
     @Published var isRandomBenchmarkRunning = false
     @Published var randomBenchmarkStatus = "Noch kein Zufallsbenchmark gestartet"
 
+    @Published var isNormalDistributionRunning = false
+    @Published var normalDistributionStatus = "Noch kein Normalverteilungstest gestartet"
+
     @Published var isConfirmationRunning = false
     @Published var confirmationStatus = "Noch kein G/U-Bestätigungstest gestartet"
 
@@ -120,7 +123,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func startLearning() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         let recommendationCount = AppSettings.recommendationCount
@@ -150,7 +153,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func resetLearnedWeights() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
         OptimizationGoalStore.shared.reset()
         learnedGoal = OptimizationGoalStore.shared.currentGoal
         learningResult = nil
@@ -158,7 +161,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runHoldoutTest() {
-        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRandomBenchmarkRunning, !isConfirmationRunning else { return }
+        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isHoldoutRunning = true
@@ -184,7 +187,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runRandomBenchmark() {
-        guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isConfirmationRunning else { return }
+        guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isRandomBenchmarkRunning = true
@@ -210,8 +213,35 @@ final class OptimizerViewModel: ObservableObject {
         }
     }
 
+    func runNormalDistributionTest() {
+        guard !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isConfirmationRunning else { return }
+
+        let draws = database.allDraws()
+        isNormalDistributionRunning = true
+        normalDistributionStatus = "Normalverteilungstest läuft – Alpha 7.5 bleibt unverändert..."
+
+        print("===================================")
+        print("📐 NORMALVERTEILUNG – ISOLIERTER TEST")
+        print("===================================")
+        print("🔒 Alpha 7.5 wird nicht verändert.")
+        print("🔒 Keine Gewichte und keine EQI-Auswahl.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            NormalDistributionTestEngine().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+
+            DispatchQueue.main.async {
+                self.normalDistributionStatus = "Normalverteilungstest beendet – Ergebnis im Konsolen-Output"
+                self.isNormalDistributionRunning = false
+            }
+        }
+    }
+
     func runGUConfirmation() {
-        guard !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
+        guard !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
 
         let draws = database.allDraws()
         isConfirmationRunning = true
@@ -237,7 +267,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runBacktest() {
-        guard !isLearning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isBacktestRunning = true
