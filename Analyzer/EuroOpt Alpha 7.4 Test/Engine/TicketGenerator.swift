@@ -46,17 +46,22 @@ final class TicketGenerator {
         let start = Date()
         let scoreCache = ScoreCache(draws: draws)
         var result = Array<Ticket?>(repeating: nil, count: survivors.count)
+        let resultLock = NSLock()
 
         DispatchQueue.concurrentPerform(iterations: survivors.count) { index in
             let scoreEngine = ScoreEngine(cache: scoreCache, goal: goal)
             let mutator = SmartMutator()
 
-            result[index] = improve(
+            let improved = improve(
                 ticket: survivors[index].ticket,
                 scoreEngine: scoreEngine,
                 mutator: mutator,
                 iterations: hillClimbingIterations
             )
+
+            resultLock.lock()
+            result[index] = improved
+            resultLock.unlock()
         }
 
         let finalResult = result.compactMap { $0 }
