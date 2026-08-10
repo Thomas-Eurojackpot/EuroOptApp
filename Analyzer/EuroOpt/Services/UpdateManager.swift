@@ -53,11 +53,19 @@ final class UpdateManager {
 
                         do {
 
-                            let normalized = try self.encodeDraws(onlineDraws)
+                            // The live endpoint may return the complete archive
+                            // or only the latest draw. Merge instead of replacing
+                            // the local archive so historical data is never lost.
+                            let mergedDraws = self.mergeDraws(
+                                localDraws,
+                                with: onlineDraws
+                            )
+
+                            let normalized = try self.encodeDraws(mergedDraws)
                             try self.database.replaceDatabase(with: normalized)
 
                             print("⬇️ Neue Ziehungen übernommen")
-                            print("Neue Datenbank:", onlineDraws.count, "Ziehungen")
+                            print("Datenbank nach Update:", mergedDraws.count, "Ziehungen")
 
                             completion(true)
 
@@ -233,16 +241,14 @@ final class UpdateManager {
             return draws.sorted { $0.date < $1.date }
         }
 
-        // LOTTO.de has changed JSON wrappers in the past. The generic parser
-        // below accepts common date/number key variants and ignores unrelated
-        // objects such as jackpot/quote information.
-        guard let object = try? JSONSerialization.jsonObject(with: data),
-              let json = object as? Any else {
+        // LOTTO.de may wrap the data differently. The generic parser accepts
+        // common date/number key variants and ignores unrelated objects.
+        guard let object = try? JSONSerialization.jsonObject(with: data) else {
             return nil
         }
 
         var draws: [EuroJackpotDraw] = []
-        collectDraws(from: json, into: &draws)
+        collectDraws(from: object, into: &draws)
 
         let unique = Dictionary(grouping: draws, by: { $0.date })
             .compactMap { $0.value.first }
@@ -346,6 +352,24 @@ final class UpdateManager {
         }
 
         return nil
+    }
+
+    private func mergeDraws(
+        _ localDraws: [EuroJackpotDraw],
+        with onlineDraws: [EuroJackpotDraw]
+    ) -> [EuroJackpotDraw] {
+
+        var byDate: [Date: EuroJackpotDraw] = [:]
+
+        for draw in localDraws {
+            byDate[draw.date] = draw
+        }
+
+        for draw in onlineDraws {
+            byDate[draw.date] = draw
+        }
+
+        return byDate.values.sorted { $0.date < $1.date }
     }
 
     private func encodeDraws(_ draws: [EuroJackpotDraw]) throws -> Data {
