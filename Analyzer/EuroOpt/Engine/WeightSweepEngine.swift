@@ -21,8 +21,6 @@ final class WeightSweepEngine {
         var tickets = 0
     }
 
-    // 32 deterministic profiles: enough exploration without turning one run
-    // into an unnecessarily long optimization job.
     private let profileCount = 32
     private let candidateCountMinimum = 301
 
@@ -60,7 +58,6 @@ final class WeightSweepEngine {
         print("🔒 Holdout bleibt bis zur Gewichtswahl unangetastet.")
         print("")
 
-        // Phase 1: select weights only on the first half of the rolling backtest.
         for index in 100..<holdoutStart {
             let trainingDraws = Array(draws.prefix(index))
             let targetDraw = draws[index]
@@ -71,7 +68,6 @@ final class WeightSweepEngine {
                 hillClimbingIterations: 0
             )
 
-            // One immutable historical cache is shared by every profile.
             let cache = ScoreCache(draws: trainingDraws)
             let scoreEngines = profiles.map { ScoreEngine(cache: cache, goal: $0.goal) }
 
@@ -133,7 +129,6 @@ final class WeightSweepEngine {
         print("")
         print("🔒 Jetzt erst folgt der unabhängige Holdout-Test.")
 
-        // Phase 2: freeze the selected profile and evaluate it only on unseen draws.
         var holdoutHits = 0
         var holdoutEuroHits = 0
         var holdoutTickets = 0
@@ -188,6 +183,93 @@ final class WeightSweepEngine {
         print("===================================")
     }
 
+    // Pre-registered confirmation of the already selected G/U-only profile.
+    // This does not select or tune weights. It is a fresh calculation on the
+    // latest 100 draws, but those draws were already part of the previous
+    // holdout, so this is a confirmation slice, not a statistically independent
+    // second experiment. A truly independent experiment requires new draws.
+    func runGUConfirmation(
+        draws: [EuroJackpotDraw],
+        recommendationCount: Int,
+        windowSize: Int = 100
+    ) {
+        guard draws.count > windowSize + 100 else {
+            print("❌ G/U-Bestätigung: zu wenige Ziehungen")
+            return
+        }
+
+        let start = Date()
+        let firstIndex = max(100, draws.count - windowSize)
+        let generator = TicketGenerator()
+        let candidateCount = max(AppSettings.backtestCandidateCount + 1, candidateCountMinimum)
+        let goal = makeGoal([0, 0, 100, 0, 0, 0])
+        var hits = 0
+        var euroHits = 0
+        var tickets = 0
+
+        print("")
+        print("===================================")
+        print("🧪 G/U-BESTÄTIGUNGS-TEST")
+        print("===================================")
+        print("Profil              : F 0 | P 0 | G/U 100 | H/N 0 | S 0 | A 0")
+        print("Fenster             : letzte \(draws.count - firstIndex) Ziehungen")
+        print("Gewichte fest       : JA — keine Optimierung")
+        print("Kandidaten je Test  : \(candidateCount)")
+        print("Empfehlungen        : \(recommendationCount)")
+        print("⚠️ Dieses Fenster war Teil des bisherigen Holdouts.")
+        print("⚠️ Daher keine statistisch unabhängige Wiederholung.")
+        print("")
+
+        for index in firstIndex..<draws.count {
+            let trainingDraws = Array(draws.prefix(index))
+            let targetDraw = draws[index]
+            let candidates = generator.generate(
+                count: candidateCount,
+                draws: trainingDraws,
+                goal: OptimizationGoal(),
+                hillClimbingIterations: 0
+            )
+            let cache = ScoreCache(draws: trainingDraws)
+            let scoreEngine = ScoreEngine(cache: cache, goal: goal)
+            let best = bestTickets(
+                candidates: candidates,
+                scoreEngine: scoreEngine,
+                limit: recommendationCount
+            )
+
+            hits += best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
+            euroHits += best.reduce(0) { $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count }
+            tickets += best.count
+
+            let current = index - firstIndex + 1
+            if current.isMultiple(of: 25) {
+                print("... Bestätigung \(current) / \(draws.count - firstIndex)")
+            }
+        }
+
+        let average = tickets > 0 ? Double(hits) / Double(tickets) : 0
+        let euroAverage = tickets > 0 ? Double(euroHits) / Double(tickets) : 0
+        let randomMain = 0.50
+        let randomEuro = 1.0 / 3.0
+
+        print("")
+        print("===================================")
+        print("🧪 G/U-BESTÄTIGUNGS-ERGEBNIS")
+        print("===================================")
+        print("Gewichte            : F 0 | P 0 | G/U 100 | H/N 0 | S 0 | A 0")
+        print(String(format: "Ø Haupttreffer      : %.3f", average))
+        print(String(format: "Ø Eurotreffer       : %.3f", euroAverage))
+        print(String(format: "Zufall theoretisch  : %.3f / %.3f", randomMain, randomEuro))
+        print(String(format: "Δ Haupt vs Zufall   : %+.3f", average - randomMain))
+        print(String(format: "Δ Euro vs Zufall    : %+.3f", euroAverage - randomEuro))
+        print("Profil wurde vorher festgelegt: JA")
+        print("Gewichte wurden im Test verändert: NEIN")
+        print("Hinweis: Für echte Unabhängigkeit benötigen wir neue Ziehungen nach dem bisherigen Datenbestand.")
+        print("")
+        print(String(format: "⏱ G/U-Bestätigung: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print("===================================")
+    }
+
     private func bestTickets(
         candidates: [Ticket],
         scoreEngine: ScoreEngine,
@@ -230,7 +312,6 @@ final class WeightSweepEngine {
     private func makeProfiles() -> [Profile] {
         var profiles: [Profile] = []
 
-        // Fixed reference profiles make the sweep interpretable.
         let fixed: [[Double]] = [
             [100, 0, 0, 0, 0, 0],
             [0, 100, 0, 0, 0, 0],
@@ -245,7 +326,6 @@ final class WeightSweepEngine {
             profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
         }
 
-        // Deterministic random sweep. Fixed seed means runs are reproducible.
         var state: UInt64 = 0xA7_5001_2026
         while profiles.count < profileCount {
             var raw: [Double] = []
