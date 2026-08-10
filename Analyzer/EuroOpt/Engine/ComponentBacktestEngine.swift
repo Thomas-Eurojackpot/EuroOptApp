@@ -127,99 +127,26 @@ final class ComponentBacktestEngine {
         print("")
         print(String(format: "⏱ Komponententest: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
+
+        // Alpha 7.5: choose weights only on an earlier validation period,
+        // then evaluate the frozen winner on a chronological holdout.
+        WeightSweepEngine().run(
+            draws: draws,
+            recommendationCount: recommendationCount
+        )
     }
 
     private func makeModels() -> [Model] {
-
-        let frequency = OptimizationGoal(
-            frequencyWeight: 100,
-            pairWeight: 0,
-            evenOddWeight: 0,
-            highLowWeight: 0,
-            sumWeight: 0,
-            gapWeight: 0
-        )
-
-        let pairs = OptimizationGoal(
-            frequencyWeight: 0,
-            pairWeight: 100,
-            evenOddWeight: 0,
-            highLowWeight: 0,
-            sumWeight: 0,
-            gapWeight: 0
-        )
-
-        let evenOdd = OptimizationGoal(
-            frequencyWeight: 0,
-            pairWeight: 0,
-            evenOddWeight: 100,
-            highLowWeight: 0,
-            sumWeight: 0,
-            gapWeight: 0
-        )
-
-        let highLow = OptimizationGoal(
-            frequencyWeight: 0,
-            pairWeight: 0,
-            evenOddWeight: 0,
-            highLowWeight: 100,
-            sumWeight: 0,
-            gapWeight: 0
-        )
-
-        let sum = OptimizationGoal(
-            frequencyWeight: 0,
-            pairWeight: 0,
-            evenOddWeight: 0,
-            highLowWeight: 0,
-            sumWeight: 100,
-            gapWeight: 0
-        )
-
-        let gaps = OptimizationGoal(
-            frequencyWeight: 0,
-            pairWeight: 0,
-            evenOddWeight: 0,
-            highLowWeight: 0,
-            sumWeight: 0,
-            gapWeight: 100
-        )
-
-        let frequencyPairs = OptimizationGoal(
-            frequencyWeight: 50,
-            pairWeight: 50,
-            evenOddWeight: 0,
-            highLowWeight: 0,
-            sumWeight: 0,
-            gapWeight: 0
-        )
-
-        let frequencyPairsEvenOdd = OptimizationGoal(
-            frequencyWeight: 40,
-            pairWeight: 35,
-            evenOddWeight: 25,
-            highLowWeight: 0,
-            sumWeight: 0,
-            gapWeight: 0
-        )
-
-        let frequencyPairsEvenOddHighLow = OptimizationGoal(
-            frequencyWeight: 30,
-            pairWeight: 25,
-            evenOddWeight: 15,
-            highLowWeight: 15,
-            sumWeight: 0,
-            gapWeight: 0
-        )
-
-        let alpha74 = OptimizationGoal(
-            frequencyWeight: 30,
-            pairWeight: 25,
-            evenOddWeight: 15,
-            highLowWeight: 15,
-            sumWeight: 15,
-            gapWeight: 0
-        )
+        let frequency = OptimizationGoal(frequencyWeight: 100, pairWeight: 0, evenOddWeight: 0, highLowWeight: 0, sumWeight: 0, gapWeight: 0)
+        let pairs = OptimizationGoal(frequencyWeight: 0, pairWeight: 100, evenOddWeight: 0, highLowWeight: 0, sumWeight: 0, gapWeight: 0)
+        let evenOdd = OptimizationGoal(frequencyWeight: 0, pairWeight: 0, evenOddWeight: 100, highLowWeight: 0, sumWeight: 0, gapWeight: 0)
+        let highLow = OptimizationGoal(frequencyWeight: 0, pairWeight: 0, evenOddWeight: 0, highLowWeight: 100, sumWeight: 0, gapWeight: 0)
+        let sum = OptimizationGoal(frequencyWeight: 0, pairWeight: 0, evenOddWeight: 0, highLowWeight: 0, sumWeight: 100, gapWeight: 0)
+        let gaps = OptimizationGoal(frequencyWeight: 0, pairWeight: 0, evenOddWeight: 0, highLowWeight: 0, sumWeight: 0, gapWeight: 100)
+        let frequencyPairs = OptimizationGoal(frequencyWeight: 50, pairWeight: 50, evenOddWeight: 0, highLowWeight: 0, sumWeight: 0, gapWeight: 0)
+        let frequencyPairsEvenOdd = OptimizationGoal(frequencyWeight: 40, pairWeight: 35, evenOddWeight: 25, highLowWeight: 0, sumWeight: 0, gapWeight: 0)
+        let frequencyPairsEvenOddHighLow = OptimizationGoal(frequencyWeight: 30, pairWeight: 25, evenOddWeight: 15, highLowWeight: 15, sumWeight: 0, gapWeight: 0)
+        let alpha74 = OptimizationGoal(frequencyWeight: 30, pairWeight: 25, evenOddWeight: 15, highLowWeight: 15, sumWeight: 15, gapWeight: 0)
 
         return [
             Model(name: "Nur Frequenz", goal: frequency),
