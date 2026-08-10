@@ -43,7 +43,6 @@ final class WeightSweepEngine {
         let profiles = makeProfiles()
         let generator = TicketGenerator()
         let candidateCount = max(AppSettings.backtestCandidateCount + 1, candidateCountMinimum)
-        let scoreEngines = profiles.map { ScoreEngine(goal: $0.goal) }
 
         var validationTotals = Array(repeating: Aggregate(), count: profiles.count)
 
@@ -72,10 +71,13 @@ final class WeightSweepEngine {
                 hillClimbingIterations: 0
             )
 
+            // One immutable historical cache is shared by every profile.
+            let cache = ScoreCache(draws: trainingDraws)
+            let scoreEngines = profiles.map { ScoreEngine(cache: cache, goal: $0.goal) }
+
             for profileIndex in profiles.indices {
                 let best = bestTickets(
                     candidates: candidates,
-                    draws: trainingDraws,
                     scoreEngine: scoreEngines[profileIndex],
                     limit: recommendationCount
                 )
@@ -132,7 +134,6 @@ final class WeightSweepEngine {
         print("🔒 Jetzt erst folgt der unabhängige Holdout-Test.")
 
         // Phase 2: freeze the selected profile and evaluate it only on unseen draws.
-        let winnerScoreEngine = ScoreEngine(goal: winner.goal)
         var holdoutHits = 0
         var holdoutEuroHits = 0
         var holdoutTickets = 0
@@ -146,9 +147,10 @@ final class WeightSweepEngine {
                 goal: OptimizationGoal(),
                 hillClimbingIterations: 0
             )
+            let cache = ScoreCache(draws: trainingDraws)
+            let winnerScoreEngine = ScoreEngine(cache: cache, goal: winner.goal)
             let best = bestTickets(
                 candidates: candidates,
-                draws: trainingDraws,
                 scoreEngine: winnerScoreEngine,
                 limit: recommendationCount
             )
@@ -188,13 +190,12 @@ final class WeightSweepEngine {
 
     private func bestTickets(
         candidates: [Ticket],
-        draws: [EuroJackpotDraw],
         scoreEngine: ScoreEngine,
         limit: Int
     ) -> [Ticket] {
 
         guard !candidates.isEmpty else { return [] }
-        let scored = candidates.map { ($0, scoreEngine.score(ticket: $0, draws: draws)) }
+        let scored = candidates.map { ($0, scoreEngine.score(ticket: $0)) }
             .sorted { $0.1 > $1.1 }
 
         var result: [Ticket] = []
