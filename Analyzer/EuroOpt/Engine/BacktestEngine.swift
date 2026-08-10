@@ -53,7 +53,7 @@ final class BacktestEngine {
         }
 
         let statistics = BacktestStatistics.calculate(from: results)
-        let prizeClasses = statistics.prizeClasses
+        let prizeClasses = PrizeClassCalculator.calculate(from: results)
         let duration = Date().timeIntervalSince(start)
 
         print("")
