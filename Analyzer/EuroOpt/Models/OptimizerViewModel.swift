@@ -2,7 +2,7 @@
 //  OptimizerViewModel.swift
 //  EuroOpt
 //
-//  Alpha 6.5
+//  Alpha 7.5
 //
 
 import Foundation
@@ -21,12 +21,34 @@ final class OptimizerViewModel: ObservableObject {
     @Published var backtestProgress: Double = 0
     @Published var backtestStatus = "Bereit"
 
+    @Published var isLearning = false
+    @Published var learningStatus = "Noch kein Lernlauf gestartet"
+    @Published var learnedGoal = OptimizationGoalStore.shared.currentGoal
+    @Published var learningResult: LearningResult?
+
     // MARK: - Private Properties
 
     private let database = DrawDatabase()
     private let optimizer = OptimizerEngine()
     private let generator = TicketGenerator()
     private let backtest = BacktestEngine()
+    private let learningEngine = LearningEngine()
+
+    // MARK: - Learned Profile
+
+    var learnedProfileText: String {
+        let goal = learnedGoal
+
+        return String(
+            format: "F %.0f  |  P %.0f  |  G/U %.0f  |  H/N %.0f  |  S %.0f  |  A %.0f",
+            goal.frequencyWeight,
+            goal.pairWeight,
+            goal.evenOddWeight,
+            goal.highLowWeight,
+            goal.sumWeight,
+            goal.gapWeight
+        )
+    }
 
     // MARK: - Share Text
 
@@ -39,7 +61,7 @@ final class OptimizerViewModel: ObservableObject {
         var text = """
 🎯 EuroOpt – Top \(reports.count) Empfehlungen
 
-🍀 Erstellt mit EuroOpt Alpha 6.5
+🍀 Erstellt mit EuroOpt Alpha 7.5
 
 ────────────────────
 
@@ -70,12 +92,8 @@ final class OptimizerViewModel: ObservableObject {
 
         }
 
-        text += """
-🍀 Viel Glück!
-"""
-
+        text += "🍀 Viel Glück!"
         return text
-
     }
 
     // MARK: - Empfehlungen
@@ -88,19 +106,21 @@ final class OptimizerViewModel: ObservableObject {
         print("================================")
         print("🎯 Gewählte Spielsysteme: \(candidateCount)")
         print("🏆 Gewünschte Empfehlungen: \(recommendationCount)")
+        print("🧠 Verwendetes Profil: \(learnedProfileText)")
         print("================================")
 
         isCalculating = true
 
         let start = Date()
-
         let draws = database.allDraws()
+        let goal = OptimizationGoalStore.shared.currentGoal
 
         print("📊 Ziehungen geladen: \(draws.count)")
 
         let candidates = generator.generate(
             count: candidateCount,
-            draws: draws
+            draws: draws,
+            goal: goal
         )
 
         print("🎲 Erzeugte Spielsysteme: \(candidates.count)")
@@ -108,18 +128,17 @@ final class OptimizerViewModel: ObservableObject {
         let bestTickets = optimizer.bestTickets(
             from: candidates,
             draws: draws,
+            goal: goal,
             limit: recommendationCount
         )
 
         print("🥇 Beste Spielsysteme: \(bestTickets.count)")
 
         reports = bestTickets.map {
-
             OptimizerReport(
                 ticket: $0.ticket,
                 eqi: EQI(value: $0.score)
             )
-
         }
 
         let duration = Date().timeIntervalSince(start)
@@ -129,12 +148,55 @@ final class OptimizerViewModel: ObservableObject {
         print("--------------------------------")
 
         isCalculating = false
+    }
 
+    // MARK: - 🧠 Gewichte lernen
+
+    func startLearning() {
+        guard !isLearning, !isCalculating, !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+        let recommendationCount = AppSettings.recommendationCount
+
+        isLearning = true
+        learningStatus = "Walk-Forward-Lernen läuft..."
+        learningResult = nil
+
+        print("===================================")
+        print("🧠 GEWICHTE LERNEN")
+        print("===================================")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            let result = self.learningEngine.learn(
+                draws: draws,
+                recommendationCount: recommendationCount,
+                candidateCount: max(AppSettings.backtestCandidateCount + 1, 501)
+            )
+
+            DispatchQueue.main.async {
+                self.learnedGoal = result.goal
+                self.learningResult = result
+                self.learningStatus = "Lernen beendet – Profil gespeichert"
+                self.isLearning = false
+            }
+        }
+    }
+
+    func resetLearnedWeights() {
+        guard !isLearning, !isCalculating, !isBacktestRunning else { return }
+
+        OptimizationGoalStore.shared.reset()
+        learnedGoal = OptimizationGoalStore.shared.currentGoal
+        learningResult = nil
+        learningStatus = "Standardprofil wiederhergestellt"
     }
 
     // MARK: - Backtest
 
     func runBacktest() {
+        guard !isLearning else { return }
 
         let draws = database.allDraws()
 
@@ -142,7 +204,8 @@ final class OptimizerViewModel: ObservableObject {
         backtestProgress = 0
         backtestStatus = "Backtest läuft..."
 
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
 
             _ = self.backtest.run(
                 draws: draws,
@@ -151,12 +214,9 @@ final class OptimizerViewModel: ObservableObject {
             ) { progress, current, total in
 
                 DispatchQueue.main.async {
-
                     self.backtestProgress = progress
                     self.backtestStatus = "\(current) von \(total) Ziehungen"
-
                 }
-
             }
 
             let componentBacktest = ComponentBacktestEngine()
@@ -166,15 +226,10 @@ final class OptimizerViewModel: ObservableObject {
             )
 
             DispatchQueue.main.async {
-
                 self.backtestProgress = 1.0
                 self.backtestStatus = "Backtest + Komponententest beendet"
                 self.isBacktestRunning = false
-
             }
-
         }
-
     }
-
 }
