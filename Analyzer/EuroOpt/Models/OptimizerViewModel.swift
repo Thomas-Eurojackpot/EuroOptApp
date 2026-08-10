@@ -28,6 +28,9 @@ final class OptimizerViewModel: ObservableObject {
     @Published var isNormalDistributionRunning = false
     @Published var normalDistributionStatus = "Noch kein Normalverteilungstest gestartet"
 
+    @Published var isMoonPhaseRunning = false
+    @Published var moonPhaseStatus = "Noch kein Mondphasentest gestartet"
+
     @Published var isConfirmationRunning = false
     @Published var confirmationStatus = "Noch kein G/U-Bestätigungstest gestartet"
 
@@ -123,7 +126,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func startLearning() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         let recommendationCount = AppSettings.recommendationCount
@@ -153,7 +156,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func resetLearnedWeights() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
         OptimizationGoalStore.shared.reset()
         learnedGoal = OptimizationGoalStore.shared.currentGoal
         learningResult = nil
@@ -161,7 +164,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runHoldoutTest() {
-        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
+        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isHoldoutRunning = true
@@ -187,7 +190,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runRandomBenchmark() {
-        guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
+        guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isRandomBenchmarkRunning = true
@@ -214,7 +217,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runNormalDistributionTest() {
-        guard !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isConfirmationRunning else { return }
+        guard !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isNormalDistributionRunning = true
@@ -240,8 +243,35 @@ final class OptimizerViewModel: ObservableObject {
         }
     }
 
+    func runMoonPhaseTest() {
+        guard !isMoonPhaseRunning, !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isConfirmationRunning else { return }
+
+        let draws = database.allDraws()
+        isMoonPhaseRunning = true
+        moonPhaseStatus = "Mondphasentest läuft – Phase wird nur aus Validation gewählt..."
+
+        print("===================================")
+        print("🌙 MONDPHASEN – ISOLIERTER TEST")
+        print("===================================")
+        print("🔒 Alpha 7.5 wird nicht verändert.")
+        print("🔒 Mondphase wird ausschließlich aus der Validation gewählt.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            MoonPhaseEngine().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+
+            DispatchQueue.main.async {
+                self.moonPhaseStatus = "Mondphasentest beendet – Ergebnis im Konsolen-Output"
+                self.isMoonPhaseRunning = false
+            }
+        }
+    }
+
     func runGUConfirmation() {
-        guard !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
+        guard !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
 
         let draws = database.allDraws()
         isConfirmationRunning = true
@@ -267,7 +297,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runBacktest() {
-        guard !isLearning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isBacktestRunning = true
