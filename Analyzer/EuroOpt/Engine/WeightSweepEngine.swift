@@ -19,6 +19,7 @@ final class WeightSweepEngine {
         var hits = 0
         var euroHits = 0
         var tickets = 0
+        var expectedEuroHits = 0.0
     }
 
     private let profileCount = 32
@@ -55,6 +56,7 @@ final class WeightSweepEngine {
         print("Kandidaten je Test  : \(candidateCount)")
         print("Empfehlungen        : \(recommendationCount)")
         print("Auswertung          : kombinierter Haupt-/Euro-Überschuss")
+        print("Euro-Basis          : historisch 0.400 bis 24.03.2022 / 0.333 ab 25.03.2022")
         print("")
         print("🔒 Holdout bleibt bis zur Gewichtswahl unangetastet.")
         print("")
@@ -80,9 +82,12 @@ final class WeightSweepEngine {
                 )
                 let hits = best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
                 let euroHits = best.reduce(0) { $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count }
+                let expectedEuroHits = expectedEuroHits(for: targetDraw.date, ticketCount: best.count)
+
                 validationTotals[profileIndex].hits += hits
                 validationTotals[profileIndex].euroHits += euroHits
                 validationTotals[profileIndex].tickets += best.count
+                validationTotals[profileIndex].expectedEuroHits += expectedEuroHits
             }
 
             if (index - 99).isMultiple(of: 50) {
@@ -99,6 +104,7 @@ final class WeightSweepEngine {
         let winnerValidation = validationTotals[winnerIndex]
         let validationAverage = averageMain(winnerValidation)
         let validationEuroAverage = averageEuro(winnerValidation)
+        let validationEuroExpected = averageExpectedEuro(winnerValidation)
 
         print("")
         print("-----------------------------------")
@@ -106,20 +112,22 @@ final class WeightSweepEngine {
         print("-----------------------------------")
         for (rank, profileIndex) in ranked.prefix(10).enumerated() {
             let total = validationTotals[profileIndex]
-            print(String(format: "%2d. P%02d  Haupt %.3f  Euro %.3f  Score %+.3f  %@",
+            print(String(format: "%2d. P%02d  Haupt %.3f  Euro %.3f  Basis %.3f  Score %+.3f  %@",
                          rank + 1,
                          profiles[profileIndex].id,
                          averageMain(total),
                          averageEuro(total),
+                         averageExpectedEuro(total),
                          validationScore(total),
                          weightLabel(profiles[profileIndex])))
         }
 
         print("")
         print("🏆 GEWÄHLTES VALIDATION-PROFIL P\(String(format: "%02d", winner.id))")
-        print(String(format: "Haupt %.3f | Euro %.3f | kombinierter Überschuss %+.3f",
+        print(String(format: "Haupt %.3f | Euro %.3f | Euro-Basis %.3f | kombinierter Überschuss %+.3f",
                      validationAverage,
                      validationEuroAverage,
+                     validationEuroExpected,
                      validationScore(winnerValidation)))
         print(weightLabel(winner))
         print("")
@@ -128,6 +136,7 @@ final class WeightSweepEngine {
         var holdoutHits = 0
         var holdoutEuroHits = 0
         var holdoutTickets = 0
+        var holdoutExpectedEuroHits = 0.0
 
         for index in holdoutStart..<draws.count {
             let trainingDraws = Array(draws.prefix(index))
@@ -149,6 +158,7 @@ final class WeightSweepEngine {
             holdoutHits += best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
             holdoutEuroHits += best.reduce(0) { $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count }
             holdoutTickets += best.count
+            holdoutExpectedEuroHits += expectedEuroHits(for: targetDraw.date, ticketCount: best.count)
 
             let current = index - holdoutStart + 1
             if current.isMultiple(of: 50) {
@@ -158,8 +168,8 @@ final class WeightSweepEngine {
 
         let holdoutAverage = holdoutTickets > 0 ? Double(holdoutHits) / Double(holdoutTickets) : 0
         let holdoutEuroAverage = holdoutTickets > 0 ? Double(holdoutEuroHits) / Double(holdoutTickets) : 0
+        let holdoutEuroExpected = holdoutTickets > 0 ? holdoutExpectedEuroHits / Double(holdoutTickets) : 0
         let randomMain = 0.50
-        let randomEuro = 1.0 / 3.0
 
         print("")
         print("===================================")
@@ -168,13 +178,15 @@ final class WeightSweepEngine {
         print(String(format: "Gewichte            : %@", weightLabel(winner)))
         print(String(format: "Ø Haupttreffer      : %.3f", holdoutAverage))
         print(String(format: "Ø Eurotreffer       : %.3f", holdoutEuroAverage))
-        print(String(format: "Zufall theoretisch  : %.3f / %.3f", randomMain, randomEuro))
+        print(String(format: "Ø Euro-Basis        : %.3f", holdoutEuroExpected))
+        print(String(format: "Zufall theoretisch  : %.3f / %.3f", randomMain, holdoutEuroExpected))
         print(String(format: "Δ Haupt vs Zufall   : %+.3f", holdoutAverage - randomMain))
-        print(String(format: "Δ Euro vs Zufall    : %+.3f", holdoutEuroAverage - randomEuro))
-        print(String(format: "Kombinierter Δ      : %+.3f", (holdoutAverage - randomMain) + (holdoutEuroAverage - randomEuro)))
+        print(String(format: "Δ Euro vs Basis     : %+.3f", holdoutEuroAverage - holdoutEuroExpected))
+        print(String(format: "Kombinierter Δ      : %+.3f", (holdoutAverage - randomMain) + (holdoutEuroAverage - holdoutEuroExpected)))
         print("")
         print("Interpretation: Das Profil wurde ausschließlich auf der Validation-Hälfte gewählt.")
         print("Der Holdout wurde weder zur Gewichtswahl noch zur Kombinationsermittlung verwendet.")
+        print("Die Euro-Basis berücksichtigt den Wechsel von 10 auf 12 Eurozahlen ab 25.03.2022.")
         print("")
         print(String(format: "⏱ Weight-Sweep: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
@@ -203,6 +215,7 @@ final class WeightSweepEngine {
         var hits = 0
         var euroHits = 0
         var tickets = 0
+        var expectedEuroHits = 0.0
 
         print("")
         print("===================================")
@@ -213,6 +226,7 @@ final class WeightSweepEngine {
         print("Gewichte fest       : JA — keine Optimierung")
         print("Kandidaten je Test  : \(candidateCount)")
         print("Empfehlungen        : \(recommendationCount)")
+        print("Euro-Basis          : historisch 0.400 bis 24.03.2022 / 0.333 ab 25.03.2022")
         print("⚠️ Dieses Fenster war Teil des bisherigen Holdouts.")
         print("⚠️ Daher keine statistisch unabhängige Wiederholung.")
         print("")
@@ -237,6 +251,7 @@ final class WeightSweepEngine {
             hits += best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
             euroHits += best.reduce(0) { $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count }
             tickets += best.count
+            expectedEuroHits += expectedEuroHits(for: targetDraw.date, ticketCount: best.count)
 
             let current = index - firstIndex + 1
             if current.isMultiple(of: 25) {
@@ -246,8 +261,8 @@ final class WeightSweepEngine {
 
         let average = tickets > 0 ? Double(hits) / Double(tickets) : 0
         let euroAverage = tickets > 0 ? Double(euroHits) / Double(tickets) : 0
+        let euroExpected = tickets > 0 ? expectedEuroHits / Double(tickets) : 0
         let randomMain = 0.50
-        let randomEuro = 1.0 / 3.0
 
         print("")
         print("===================================")
@@ -256,9 +271,10 @@ final class WeightSweepEngine {
         print("Gewichte            : F 0 | P 0 | G/U 100 | H/N 0 | S 0 | A 0")
         print(String(format: "Ø Haupttreffer      : %.3f", average))
         print(String(format: "Ø Eurotreffer       : %.3f", euroAverage))
-        print(String(format: "Zufall theoretisch  : %.3f / %.3f", randomMain, randomEuro))
+        print(String(format: "Ø Euro-Basis        : %.3f", euroExpected))
+        print(String(format: "Zufall theoretisch  : %.3f / %.3f", randomMain, euroExpected))
         print(String(format: "Δ Haupt vs Zufall   : %+.3f", average - randomMain))
-        print(String(format: "Δ Euro vs Zufall    : %+.3f", euroAverage - randomEuro))
+        print(String(format: "Δ Euro vs Basis     : %+.3f", euroAverage - euroExpected))
         print("Profil wurde vorher festgelegt: JA")
         print("Gewichte wurden im Test verändert: NEIN")
         print("Hinweis: Für echte Unabhängigkeit benötigen wir neue Ziehungen nach dem bisherigen Datenbestand.")
@@ -314,10 +330,27 @@ final class WeightSweepEngine {
         aggregate.tickets > 0 ? Double(aggregate.euroHits) / Double(aggregate.tickets) : 0
     }
 
+    private func averageExpectedEuro(_ aggregate: Aggregate) -> Double {
+        aggregate.tickets > 0 ? aggregate.expectedEuroHits / Double(aggregate.tickets) : 0
+    }
+
     private func validationScore(_ aggregate: Aggregate) -> Double {
         let mainDelta = averageMain(aggregate) - 0.50
-        let euroDelta = averageEuro(aggregate) - (1.0 / 3.0)
+        let euroDelta = averageEuro(aggregate) - averageExpectedEuro(aggregate)
         return mainDelta + euroDelta
+    }
+
+    private func expectedEuroHits(for date: Date, ticketCount: Int) -> Double {
+        guard ticketCount > 0 else { return 0 }
+        let cutoff = euroFormatCutoverDate()
+        let expectedPerTicket = date < cutoff ? 0.400 : (1.0 / 3.0)
+        return expectedPerTicket * Double(ticketCount)
+    }
+
+    private func euroFormatCutoverDate() -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(from: DateComponents(year: 2022, month: 3, day: 25))!
     }
 
     private func makeProfiles() -> [Profile] {
