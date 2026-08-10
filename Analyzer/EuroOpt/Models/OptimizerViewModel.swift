@@ -27,7 +27,6 @@ final class OptimizerViewModel: ObservableObject {
     private let optimizer = OptimizerEngine()
     private let generator = TicketGenerator()
     private let backtest = BacktestEngine()
-    private let componentBacktest = ComponentBacktestEngine()
 
     // MARK: - Share Text
 
@@ -160,7 +159,8 @@ final class OptimizerViewModel: ObservableObject {
 
             }
 
-            self.componentBacktest.run(
+            let componentBacktest = ComponentBacktestEngine()
+            componentBacktest.run(
                 draws: draws,
                 recommendationCount: AppSettings.recommendationCount
             )
