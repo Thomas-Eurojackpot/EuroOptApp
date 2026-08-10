@@ -31,6 +31,7 @@ final class NormalDistributionBenchmarkEngine {
         let totalTests = draws.count - 100
         let validationTests = totalTests / 2
         let holdoutStart = 100 + validationTests
+        let holdoutCount = draws.count - holdoutStart
         let candidateCount = max(AppSettings.backtestCandidateCount + 1, candidateCountMinimum)
 
         print("")
@@ -38,7 +39,7 @@ final class NormalDistributionBenchmarkEngine {
         print("📐 NORMALVERTEILUNG – ZUFALLSBENCHMARK")
         print("===================================")
         print("Kriterium           : Summe ~ N(127.5, 30.923²)")
-        print("Holdout-Ziehungen   : \(draws.count - holdoutStart)")
+        print("Holdout-Ziehungen   : \(holdoutCount)")
         print("Kandidaten je Test  : \(candidateCount)")
         print("Empfehlungen        : \(recommendationCount)")
         print("Monte-Carlo-Läufe   : \(monteCarloRuns)")
@@ -54,7 +55,7 @@ final class NormalDistributionBenchmarkEngine {
 
         let generator = TicketGenerator()
         var cases: [TestCase] = []
-        cases.reserveCapacity(draws.count - holdoutStart)
+        cases.reserveCapacity(holdoutCount)
 
         for index in holdoutStart..<draws.count {
             let trainingDraws = Array(draws.prefix(index))
@@ -65,15 +66,12 @@ final class NormalDistributionBenchmarkEngine {
                 goal: OptimizationGoal(),
                 hillClimbingIterations: 0
             )
-            let normalSelection = selectNormal(
-                candidates: candidates,
-                limit: recommendationCount
-            )
+            let normalSelection = selectNormal(candidates: candidates, limit: recommendationCount)
             cases.append(TestCase(candidates: candidates, normalSelection: normalSelection, target: target))
 
             let current = index - holdoutStart + 1
             if current.isMultiple(of: 50) {
-                print("... Kandidaten/Modell \(current) / \(draws.count - holdoutStart)")
+                print("... Kandidaten/Modell \(current) / \(holdoutCount)")
             }
         }
 
@@ -82,7 +80,7 @@ final class NormalDistributionBenchmarkEngine {
             return
         }
 
-        let model = aggregate(selection: { testCase, _ in testCase.normalSelection }, cases: cases)
+        let model = aggregateModel(cases: cases)
 
         var mainDeltas: [Double] = []
         var euroDeltas: [Double] = []
@@ -93,17 +91,7 @@ final class NormalDistributionBenchmarkEngine {
 
         for run in 0..<monteCarloRuns {
             let rng = SeededRandomGenerator(seed: 0x4E4F524D_0000_7500 &+ UInt64(run))
-            let random = aggregate(
-                selection: { testCase, generator in
-                    selectRandomDiversified(
-                        candidates: testCase.candidates,
-                        limit: recommendationCount,
-                        rng: generator
-                    )
-                },
-                cases: cases,
-                rng: rng
-            )
+            let random = aggregateRandom(cases: cases, recommendationCount: recommendationCount, rng: rng)
 
             let mainDelta = model.mainAverage - random.mainAverage
             let euroDelta = model.euroAverage - random.euroAverage
@@ -169,14 +157,30 @@ final class NormalDistributionBenchmarkEngine {
         var euroAverage: Double { tickets > 0 ? Double(euroHits) / Double(tickets) : 0 }
     }
 
-    private func aggregate(
-        selection: (TestCase, SeededRandomGenerator?) -> [Ticket],
+    private func aggregateModel(cases: [TestCase]) -> Aggregate {
+        var result = Aggregate()
+        for testCase in cases {
+            for ticket in testCase.normalSelection {
+                result.mainHits += commonHitCount(ticket.numbers, testCase.target.numbers)
+                result.euroHits += commonHitCount(ticket.euroNumbers, testCase.target.euroNumbers)
+                result.tickets += 1
+            }
+        }
+        return result
+    }
+
+    private func aggregateRandom(
         cases: [TestCase],
-        rng: SeededRandomGenerator? = nil
+        recommendationCount: Int,
+        rng: SeededRandomGenerator
     ) -> Aggregate {
         var result = Aggregate()
         for testCase in cases {
-            let selected = selection(testCase, rng)
+            let selected = selectRandomDiversified(
+                candidates: testCase.candidates,
+                limit: recommendationCount,
+                rng: rng
+            )
             for ticket in selected {
                 result.mainHits += commonHitCount(ticket.numbers, testCase.target.numbers)
                 result.euroHits += commonHitCount(ticket.euroNumbers, testCase.target.euroNumbers)
@@ -188,9 +192,7 @@ final class NormalDistributionBenchmarkEngine {
 
     private func selectNormal(candidates: [Ticket], limit: Int) -> [Ticket] {
         candidates
-            .sorted {
-                normalScore(for: $0) > normalScore(for: $1)
-            }
+            .sorted { normalScore(for: $0) > normalScore(for: $1) }
             .reduce(into: [Ticket]()) { selected, ticket in
                 guard selected.count < limit else { return }
                 guard selected.allSatisfy({ commonNumbers($0, ticket) < 3 }) else { return }
