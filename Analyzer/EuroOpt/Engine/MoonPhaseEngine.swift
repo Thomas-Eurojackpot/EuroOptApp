@@ -11,6 +11,8 @@ final class MoonPhaseEngine {
 
     private let candidateCountMinimum = 301
     private let monteCarloRuns = 50
+    private let frozenPhase: Phase = .newMoon
+    private let confirmationCutoff = "2026-08-07"
 
     private enum Phase: String, CaseIterable {
         case newMoon = "Neumond"
@@ -78,9 +80,67 @@ final class MoonPhaseEngine {
             cases.append(TestCase(candidates: candidates, target: target, phase: moonPhase(for: target.date)))
         }
 
-        let model = aggregate(cases: cases, selection: { testCase in
-            selectMoonPhase(candidates: testCase.candidates, phase: testCase.phase, targetPhase: selectedPhase, limit: recommendationCount)
-        })
+        printBenchmark(cases: cases, targetPhase: selectedPhase, recommendationCount: recommendationCount, title: "MONDPHASEN – HOLDOUT BENCHMARK", phaseLocked: false, start: start)
+    }
+
+    func runConfirmation(draws: [EuroJackpotDraw], recommendationCount: Int) {
+        let start = Date()
+        let confirmationDraws = draws.filter { $0.dateString > confirmationCutoff }
+
+        print("")
+        print("===================================")
+        print("🌙 MONDPHASEN – UNABHÄNGIGER BESTÄTIGUNGSTEST")
+        print("===================================")
+        print("Fixierte Phase       : \(frozenPhase.rawValue)")
+        print("Daten-Cutoff         : \(confirmationCutoff)")
+        print("Neue Ziehungen       : \(confirmationDraws.count)")
+        print("Gewichte / EQI       : nicht verwendet")
+        print("Validation           : nicht verwendet")
+        print("Historischer Holdout : nicht wiederverwendet")
+        print("")
+        print("🔒 Neumond wurde vor diesem Test fest eingefroren.")
+        print("🔒 Keine erneute Phasenwahl.")
+        print("🔒 Keine Optimierung auf den neuen Daten.")
+
+        guard !confirmationDraws.isEmpty else {
+            print("")
+            print("⏳ NOCH KEINE NEUEN ZIEHUNGEN VORHANDEN")
+            print("Der Bestätigungstest startet automatisch erst, wenn draws.json Ziehungen nach \(confirmationCutoff) enthält.")
+            print(String(format: "# ⏱ Mondphasen-Bestätigung: %.2f Sekunden", Date().timeIntervalSince(start)))
+            return
+        }
+
+        let candidateCount = max(AppSettings.backtestCandidateCount + 1, candidateCountMinimum)
+        let generator = TicketGenerator()
+        var cases: [TestCase] = []
+        cases.reserveCapacity(confirmationDraws.count)
+
+        for target in confirmationDraws {
+            let priorDraws = draws.filter { $0.dateString < target.dateString }
+            let candidates = generator.generate(
+                count: candidateCount,
+                draws: priorDraws,
+                goal: OptimizationGoal(),
+                hillClimbingIterations: 0
+            )
+            cases.append(TestCase(candidates: candidates, target: target, phase: moonPhase(for: target.date)))
+        }
+
+        printBenchmark(cases: cases, targetPhase: frozenPhase, recommendationCount: recommendationCount, title: "MONDPHASEN – UNABHÄNGIGER BESTÄTIGUNGSTEST", phaseLocked: true, start: start)
+    }
+
+    private func printBenchmark(cases: [TestCase], targetPhase: Phase, recommendationCount: Int, title: String, phaseLocked: Bool, start: Date) {
+        guard !cases.isEmpty else { return }
+
+        var model = Aggregate()
+        for testCase in cases {
+            let selected = selectMoonPhase(candidates: testCase.candidates, phase: testCase.phase, targetPhase: targetPhase, limit: recommendationCount)
+            for ticket in selected {
+                model.mainHits += commonHitCount(ticket.numbers, testCase.target.numbers)
+                model.euroHits += commonHitCount(ticket.euroNumbers, testCase.target.euroNumbers)
+                model.tickets += 1
+            }
+        }
 
         var mainDeltas: [Double] = []
         var euroDeltas: [Double] = []
@@ -105,36 +165,38 @@ final class MoonPhaseEngine {
         let mainDelta = mean(mainDeltas)
         let euroDelta = mean(euroDeltas)
         let combinedDelta = mean(combinedDeltas)
-        let mainCI = confidenceInterval(mainDeltas)
-        let euroCI = confidenceInterval(euroDeltas)
-        let combinedCI = confidenceInterval(combinedDeltas)
 
         print("")
         print("===================================")
-        print("🌙 MONDPHASEN – HOLDOUT BENCHMARK")
+        print("🌙 \(title)")
         print("===================================")
-        print("Phase vorher festgelegt: NEIN")
-        print("Phase aus Validation  : \(selectedPhase.rawValue)")
-        print(String(format: "Ø Mond-Modell Haupt   : %.4f", model.mainAverage))
+        print("Phase festgelegt     : JA")
+        print("Phase                : \(targetPhase.rawValue)")
+        print("Test-Ziehungen       : \(cases.count)")
+        print(String(format: "Ø Modell Haupt        : %.4f", model.mainAverage))
         print(String(format: "Ø Zufall Haupt        : %.4f", model.mainAverage - mainDelta))
         print(String(format: "Δ Modell - Zufall     : %+.4f", mainDelta))
-        print(String(format: "95%% CI Δ Haupt        : ±%.4f", mainCI))
+        print(String(format: "95%% CI Δ Haupt        : ±%.4f", confidenceInterval(mainDeltas)))
         print("")
-        print(String(format: "Ø Mond-Modell Euro    : %.4f", model.euroAverage))
+        print(String(format: "Ø Modell Euro         : %.4f", model.euroAverage))
         print(String(format: "Ø Zufall Euro         : %.4f", model.euroAverage - euroDelta))
         print(String(format: "Δ Modell - Zufall     : %+.4f", euroDelta))
-        print(String(format: "95%% CI Δ Euro         : ±%.4f", euroCI))
+        print(String(format: "95%% CI Δ Euro         : ±%.4f", confidenceInterval(euroDeltas)))
         print("")
         print(String(format: "Δ kombiniert          : %+.4f", combinedDelta))
-        print(String(format: "95%% CI Δ kombiniert   : ±%.4f", combinedCI))
+        print(String(format: "95%% CI Δ kombiniert   : ±%.4f", confidenceInterval(combinedDeltas)))
         print("")
         print("Statistik:")
-        print("- Gepaarter Vergleich auf demselben Holdout-Zeitfenster.")
-        print("- Mondphase wurde ausschließlich aus der Validation-Hälfte gewählt.")
+        print("- Gepaarter Vergleich auf einem identischen Test-Zeitfenster.")
+        print("- Die Phase wurde vor dem Bestätigungstest festgelegt: \(targetPhase.rawValue).")
+        print("- Keine erneute Phasenwahl und keine Gewichtsoptimierung.")
         print("- Zufall verwendet keine EQI-Komponenten, Gewichte oder historischen Treffer.")
-        print("- Hauptzahl-Regeln und Diversitätsregel entsprechen dem Benchmark.")
+        print("- Hauptzahl-Regeln und Diversitätsregel entsprechen dem bisherigen Benchmark.")
         print("- 95-%-KI basiert auf 50 unabhängigen Monte-Carlo-Replikationen.")
         print("- Ein KI, das 0 nicht einschließt, wäre ein Hinweis auf einen stabilen Unterschied.")
+        if phaseLocked {
+            print("- Dieser Test verwendet ausschließlich Ziehungen nach dem Daten-Cutoff.")
+        }
         print(String(format: "# ⏱ Mondphasen-Test: %.2f Sekunden", Date().timeIntervalSince(start)))
     }
 
@@ -167,18 +229,6 @@ final class MoonPhaseEngine {
                 guard selected.allSatisfy({ commonNumbers($0, ticket) < 3 }) else { return }
                 selected.append(ticket)
             }
-    }
-
-    private func aggregate(cases: [TestCase], selection: (TestCase) -> [Ticket]) -> Aggregate {
-        var result = Aggregate()
-        for testCase in cases {
-            for ticket in selection(testCase) {
-                result.mainHits += commonHitCount(ticket.numbers, testCase.target.numbers)
-                result.euroHits += commonHitCount(ticket.euroNumbers, testCase.target.euroNumbers)
-                result.tickets += 1
-            }
-        }
-        return result
     }
 
     private func aggregateRandom(cases: [TestCase], limit: Int, rng: SeededRandomGenerator) -> Aggregate {
@@ -240,5 +290,13 @@ private final class SeededRandomGenerator {
     @inline(__always) func nextInt(upperBound: Int) -> Int {
         guard upperBound > 1 else { return 0 }
         return Int(nextUInt64() % UInt64(upperBound))
+    }
+}
+
+private extension EuroJackpotDraw {
+    var dateString: String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        return formatter.string(from: date)
     }
 }
