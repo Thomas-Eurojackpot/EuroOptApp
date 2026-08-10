@@ -2,7 +2,7 @@
 //  RandomBenchmarkEngine.swift
 //  EuroOpt
 //
-//  Alpha 7.5 - accelerated empirical random benchmark
+//  Alpha 7.5 - fixed-profile empirical random benchmark
 //  with paired holdout comparison
 //
 
@@ -11,21 +11,16 @@ import Foundation
 final class RandomBenchmarkEngine {
 
     private struct Profile {
-        let id: Int
-        let goal: OptimizationGoal
         let weights: [Double]
-    }
-
-    private struct Aggregate {
-        var hits = 0
-        var euroHits = 0
-        var tickets = 0
-        var expectedEuroHits = 0.0
+        let goal: OptimizationGoal
     }
 
     private let monteCarloRuns = 50
     private let candidateCountMinimum = 301
-    private let profileCount = 32
+
+    // Alpha 7.5 profile selected previously on the Validation half.
+    // IMPORTANT: this benchmark must never re-select or re-optimize it.
+    private let fixedWeights: [Double] = [34, 0, 0, 33, 33, 0]
 
     func run(draws: [EuroJackpotDraw], recommendationCount: Int) {
         guard draws.count > 140 else {
@@ -39,45 +34,30 @@ final class RandomBenchmarkEngine {
         let holdoutStart = 100 + validationTests
         let holdoutCount = draws.count - holdoutStart
         let candidateCount = max(AppSettings.backtestCandidateCount + 1, candidateCountMinimum)
+        let profile = Profile(weights: fixedWeights, goal: makeGoal(fixedWeights))
 
         print("")
         print("===================================")
         print("🎲 BESCHLEUNIGTER ZUFALLSBENCHMARK")
         print("===================================")
-        print("Holdout-Ziehungen  : \(holdoutCount)")
-        print("Kandidaten je Test : \(candidateCount)")
-        print("Empfehlungen       : \(recommendationCount)")
-        print("Monte-Carlo-Läufe  : \(monteCarloRuns)")
-        print("Validation         : nur zur Bestimmung des Alpha-7.5-Profils")
-        print("Gewichte / EQI     : nur für das reproduzierte Modellprofil")
-        print("Diversitätsregel   : maximal 2 gemeinsame Hauptzahlen")
-        print("Euro-Basis         : 10 bis 24.03.2022 / 12 ab 25.03.2022")
+        print("Profil              : \(weightLabel(profile))")
+        print("Profilwahl          : FEST VORGEGEBEN")
+        print("Holdout-Ziehungen   : \(holdoutCount)")
+        print("Kandidaten je Test  : \(candidateCount)")
+        print("Empfehlungen        : \(recommendationCount)")
+        print("Monte-Carlo-Läufe   : \(monteCarloRuns)")
+        print("Validation          : NICHT verwendet")
+        print("Gewichte / EQI      : keine erneute Auswahl / Optimierung")
+        print("Diversitätsregel    : maximal 2 gemeinsame Hauptzahlen")
+        print("Euro-Basis          : 10 bis 24.03.2022 / 12 ab 25.03.2022")
         print("")
-        print("🔒 Holdout wird weder zur Profilwahl noch zur Zufallserzeugung verwendet.")
+        print("🔒 Exakt das zuvor festgelegte Alpha-7.5-Profil wird verwendet.")
+        print("🔒 Das Holdout wird weder zur Profilwahl noch zur Tippauswahl verwendet.")
         print("🔒 Zufallserzeugung nutzt schnelle Stichproben statt vollständiger Array-Shuffles.")
-        print("🔒 Modell und Zufall werden pro Monte-Carlo-Lauf gepaart verglichen.")
+        print("🔒 Modell und Zufall werden über 50 unabhängige Monte-Carlo-Replikationen gepaart verglichen.")
         print("")
 
-        let winner = findValidationWinner(
-            draws: draws,
-            validationRange: 100..<holdoutStart,
-            candidateCount: candidateCount,
-            recommendationCount: recommendationCount
-        )
-
-        guard let winner else {
-            print("❌ Zufallsbenchmark: kein Validation-Profil gefunden")
-            return
-        }
-
-        print("-----------------------------------")
-        print("🏆 REPRODUZIERTES ALPHA-7.5-PROFIL")
-        print(weightLabel(winner))
-        print("-----------------------------------")
-        print("")
-
-        // Reproduce the model once on the untouched holdout.
-        // This is the fixed baseline for every Monte-Carlo run.
+        // Fixed Alpha 7.5 model on the untouched holdout.
         let generator = TicketGenerator()
         var modelMainHits = 0
         var modelEuroHits = 0
@@ -93,12 +73,16 @@ final class RandomBenchmarkEngine {
                 hillClimbingIterations: 0
             )
             let cache = ScoreCache(draws: trainingDraws)
-            let scoreEngine = ScoreEngine(cache: cache, goal: winner.goal)
-            let selected = bestTickets(candidates: candidates, scoreEngine: scoreEngine, limit: recommendationCount)
+            let scoreEngine = ScoreEngine(cache: cache, goal: profile.goal)
+            let selected = bestTickets(
+                candidates: candidates,
+                scoreEngine: scoreEngine,
+                limit: recommendationCount
+            )
 
             for ticket in selected {
-                modelMainHits += Set(ticket.numbers).intersection(targetDraw.numbers).count
-                modelEuroHits += Set(ticket.euroNumbers).intersection(targetDraw.euroNumbers).count
+                modelMainHits += commonHitCount(ticket.numbers, targetDraw.numbers)
+                modelEuroHits += commonHitCount(ticket.euroNumbers, targetDraw.euroNumbers)
                 modelTickets += 1
             }
         }
@@ -146,13 +130,15 @@ final class RandomBenchmarkEngine {
             }
 
             guard randomTickets > 0 else { continue }
+
             let randomMainAverage = Double(randomMainHits) / Double(randomTickets)
             let randomEuroAverage = Double(randomEuroHits) / Double(randomTickets)
 
             pairedMainDeltas.append(modelMainAverage - randomMainAverage)
             pairedEuroDeltas.append(modelEuroAverage - randomEuroAverage)
             pairedCombinedDeltas.append(
-                (modelMainAverage + modelEuroAverage) - (randomMainAverage + randomEuroAverage)
+                (modelMainAverage + modelEuroAverage) -
+                (randomMainAverage + randomEuroAverage)
             )
 
             if (run + 1).isMultiple(of: 5) || run == monteCarloRuns - 1 {
@@ -166,12 +152,18 @@ final class RandomBenchmarkEngine {
         let mainCI = pairedConfidenceInterval(pairedMainDeltas)
         let euroCI = pairedConfidenceInterval(pairedEuroDeltas)
         let combinedCI = pairedConfidenceInterval(pairedCombinedDeltas)
+        let theoryEuro = weightedHistoricalEuroExpectation(
+            draws: Array(draws[holdoutStart..<draws.count])
+        )
 
         print("")
         print("===================================")
-        print("🎲 ZUFALLSBENCHMARK – PAIRED ERGEBNIS")
+        print("🎲 ZUFALLSBENCHMARK – FIXED ALPHA 7.5")
         print("===================================")
-        print(String(format: "Profil              : %@", weightLabel(winner)))
+        print(String(format: "Profil              : %@", weightLabel(profile)))
+        print("Profil vorher festgelegt: JA")
+        print("Gewichte im Benchmark verändert: NEIN")
+        print("")
         print(String(format: "Ø Modell Haupt      : %.4f", modelMainAverage))
         print(String(format: "Ø Zufall Haupt      : %.4f", randomMainAverage))
         print(String(format: "Δ Modell - Zufall   : %+.4f", mean(pairedMainDeltas)))
@@ -186,65 +178,20 @@ final class RandomBenchmarkEngine {
         print(String(format: "95%% CI Δ kombiniert : ±%.4f", combinedCI))
         print("")
         print(String(format: "Theorie Haupt       : %.4f", 0.5000))
-        print(String(format: "Theorie Euro        : %.4f", weightedHistoricalEuroExpectation(draws: Array(draws[holdoutStart..<draws.count]))))
+        print(String(format: "Theorie Euro        : %.4f", theoryEuro))
         print("")
         print("Statistik:")
-        print("- Gepaarter Vergleich: jedes Monte-Carlo-Ergebnis wird gegen dasselbe Modellprofil gestellt.")
+        print("- Gepaarter Vergleich: jedes Monte-Carlo-Ergebnis wird gegen dasselbe feste Modellprofil gestellt.")
         print("- 95-%-KI basiert auf den 50 unabhängigen Monte-Carlo-Replikationen.")
         print("- Ein KI, das 0 nicht einschließt, wäre ein Hinweis auf einen stabilen Unterschied im Benchmark.")
-        print("- Der Holdout wurde nicht zur Auswahl des Profils verwendet.")
+        print("- Das Alpha-7.5-Profil wurde im Benchmark weder neu gewählt noch verändert.")
+        print("- Der Holdout wurde nicht zur Gewichtswahl verwendet.")
         print("- Der Zufall verwendet keine EQI-Komponenten und keine historischen Treffer.")
         print("- Hauptzahl-Regeln und Diversitätsregel entsprechen dem bisherigen Benchmark.")
         print("- Historisches 10/12-Eurozahlen-Format wird pro Ziehung berücksichtigt.")
         print("")
         print(String(format: "⏱ Beschleunigter Zufallsbenchmark: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
-    }
-
-    private func findValidationWinner(
-        draws: [EuroJackpotDraw],
-        validationRange: Range<Int>,
-        candidateCount: Int,
-        recommendationCount: Int
-    ) -> Profile? {
-        let profiles = makeProfiles()
-        let generator = TicketGenerator()
-        var totals = Array(repeating: Aggregate(), count: profiles.count)
-
-        for index in validationRange {
-            let trainingDraws = Array(draws.prefix(index))
-            let targetDraw = draws[index]
-            let candidates = generator.generate(
-                count: candidateCount,
-                draws: trainingDraws,
-                goal: OptimizationGoal(),
-                hillClimbingIterations: 0
-            )
-            let cache = ScoreCache(draws: trainingDraws)
-
-            for profileIndex in profiles.indices {
-                let scoreEngine = ScoreEngine(cache: cache, goal: profiles[profileIndex].goal)
-                let selected = bestTickets(candidates: candidates, scoreEngine: scoreEngine, limit: recommendationCount)
-                totals[profileIndex].hits += selected.reduce(0) {
-                    $0 + commonHitCount($1.numbers, targetDraw.numbers)
-                }
-                totals[profileIndex].euroHits += selected.reduce(0) {
-                    $0 + commonHitCount($1.euroNumbers, targetDraw.euroNumbers)
-                }
-                totals[profileIndex].tickets += selected.count
-                totals[profileIndex].expectedEuroHits += expectedEuroHitsForTickets(
-                    for: targetDraw.date,
-                    ticketCount: selected.count
-                )
-            }
-        }
-
-        guard let winnerIndex = profiles.indices.max(by: {
-            validationScore(totals[$0]) < validationScore(totals[$1])
-        }) else {
-            return nil
-        }
-        return profiles[winnerIndex]
     }
 
     private func generateCandidatesFast(
@@ -277,7 +224,8 @@ final class RandomBenchmarkEngine {
         var scanIndex = 0
 
         while scanIndex < order.count && result.count < limit {
-            let swapIndex = scanIndex + rng.nextInt(upperBound: order.count - scanIndex)
+            let remaining = order.count - scanIndex
+            let swapIndex = scanIndex + rng.nextInt(upperBound: remaining)
             order.swapAt(scanIndex, swapIndex)
             let candidate = candidates[order[scanIndex]]
             scanIndex += 1
@@ -289,16 +237,26 @@ final class RandomBenchmarkEngine {
                     break
                 }
             }
+
             if different {
                 result.append(candidate)
             }
         }
+
         return result
     }
 
-    private func bestTickets(candidates: [Ticket], scoreEngine: ScoreEngine, limit: Int) -> [Ticket] {
-        guard !candidates.isEmpty else { return [] }
-        let scored = candidates.map { ($0, scoreEngine.score(ticket: $0)) }.sorted { $0.1 > $1.1 }
+    private func bestTickets(
+        candidates: [Ticket],
+        scoreEngine: ScoreEngine,
+        limit: Int
+    ) -> [Ticket] {
+        guard !candidates.isEmpty, limit > 0 else { return [] }
+
+        let scored = candidates
+            .map { ($0, scoreEngine.score(ticket: $0)) }
+            .sorted { $0.1 > $1.1 }
+
         var result: [Ticket] = []
         result.reserveCapacity(limit)
 
@@ -310,14 +268,17 @@ final class RandomBenchmarkEngine {
                     break
                 }
             }
+
             if different {
                 result.append(candidate.0)
                 if result.count == limit { break }
             }
         }
+
         return result
     }
 
+    @inline(__always)
     private func commonNumbers(_ lhs: Ticket, _ rhs: Ticket) -> Int {
         commonHitCount(lhs.numbers, rhs.numbers)
     }
@@ -349,7 +310,9 @@ final class RandomBenchmarkEngine {
                 let gap = value - numbers[i - 1]
                 if gap == 1 {
                     consecutive += 1
-                    if consecutive > AppSettings.maximumConsecutiveNumbers { return false }
+                    if consecutive > AppSettings.maximumConsecutiveNumbers {
+                        return false
+                    }
                 } else {
                     consecutive = 1
                 }
@@ -357,29 +320,24 @@ final class RandomBenchmarkEngine {
             }
         }
 
-        guard even >= AppSettings.minimumEvenNumbers && even <= AppSettings.maximumEvenNumbers else { return false }
-        guard high >= AppSettings.minimumHighNumbers && high <= AppSettings.maximumHighNumbers else { return false }
-        guard sum >= AppSettings.minimumSum && sum <= AppSettings.maximumSum else { return false }
+        guard even >= AppSettings.minimumEvenNumbers &&
+              even <= AppSettings.maximumEvenNumbers else { return false }
+        guard high >= AppSettings.minimumHighNumbers &&
+              high <= AppSettings.maximumHighNumbers else { return false }
+        guard sum >= AppSettings.minimumSum &&
+              sum <= AppSettings.maximumSum else { return false }
         guard smallGaps <= AppSettings.maximumSmallGaps else { return false }
         return true
     }
 
-    private func validationScore(_ aggregate: Aggregate) -> Double {
-        let main = aggregate.tickets > 0 ? Double(aggregate.hits) / Double(aggregate.tickets) : 0
-        let euro = aggregate.tickets > 0 ? Double(aggregate.euroHits) / Double(aggregate.tickets) : 0
-        let expectedEuro = aggregate.tickets > 0 ? aggregate.expectedEuroHits / Double(aggregate.tickets) : 0
-        return (main - 0.50) + (euro - expectedEuro)
-    }
-
-    private func expectedEuroHitsForTickets(for date: Date, ticketCount: Int) -> Double {
-        guard ticketCount > 0 else { return 0 }
-        return (date < euroFormatCutoverDate() ? 0.400 : (1.0 / 3.0)) * Double(ticketCount)
+    private func expectedEuroHitsForDate(_ date: Date) -> Double {
+        date < euroFormatCutoverDate() ? 0.400 : (1.0 / 3.0)
     }
 
     private func weightedHistoricalEuroExpectation(draws: [EuroJackpotDraw]) -> Double {
         guard !draws.isEmpty else { return 0 }
         return draws.reduce(0.0) { partial, draw in
-            partial + (draw.date < euroFormatCutoverDate() ? 0.400 : (1.0 / 3.0))
+            partial + expectedEuroHitsForDate(draw.date)
         } / Double(draws.count)
     }
 
@@ -406,55 +364,27 @@ final class RandomBenchmarkEngine {
 
     private func pairedConfidenceInterval(_ deltas: [Double]) -> Double {
         guard deltas.count > 1 else { return 0 }
-        // t(0.975, 49) ≈ 2.009 for the default 50 Monte-Carlo replications.
         let tCritical = deltas.count == 50 ? 2.0096 : 1.96
         return tCritical * standardDeviation(deltas) / sqrt(Double(deltas.count))
     }
 
-    private func makeProfiles() -> [Profile] {
-        var profiles: [Profile] = []
-        let singles: [[Double]] = [
-            [100, 0, 0, 0, 0, 0], [0, 100, 0, 0, 0, 0], [0, 0, 100, 0, 0, 0],
-            [0, 0, 0, 100, 0, 0], [0, 0, 0, 0, 100, 0], [0, 0, 0, 0, 0, 100]
-        ]
-        for weights in singles {
-            profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
-        }
-        for lhs in 0..<6 {
-            for rhs in (lhs + 1)..<6 {
-                var weights = Array(repeating: 0.0, count: 6)
-                weights[lhs] = 50
-                weights[rhs] = 50
-                profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
-            }
-        }
-        for a in 0..<4 {
-            for b in (a + 1)..<5 {
-                for c in (b + 1)..<6 {
-                    var weights = Array(repeating: 0.0, count: 6)
-                    weights[a] = 34
-                    weights[b] = 33
-                    weights[c] = 33
-                    profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
-                }
-            }
-        }
-        let diversified = [20.0, 20.0, 15.0, 15.0, 15.0, 15.0]
-        profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(diversified), weights: diversified))
-        return Array(profiles.prefix(profileCount))
-    }
-
     private func makeGoal(_ weights: [Double]) -> OptimizationGoal {
         OptimizationGoal(
-            frequencyWeight: weights[0], pairWeight: weights[1], evenOddWeight: weights[2],
-            highLowWeight: weights[3], sumWeight: weights[4], gapWeight: weights[5]
+            frequencyWeight: weights[0],
+            pairWeight: weights[1],
+            evenOddWeight: weights[2],
+            highLowWeight: weights[3],
+            sumWeight: weights[4],
+            gapWeight: weights[5]
         )
     }
 
     private func weightLabel(_ profile: Profile) -> String {
-        String(format: "F %.0f | P %.0f | G/U %.0f | H/N %.0f | S %.0f | A %.0f",
-               profile.weights[0], profile.weights[1], profile.weights[2], profile.weights[3],
-               profile.weights[4], profile.weights[5])
+        String(
+            format: "F %.0f | P %.0f | G/U %.0f | H/N %.0f | S %.0f | A %.0f",
+            profile.weights[0], profile.weights[1], profile.weights[2],
+            profile.weights[3], profile.weights[4], profile.weights[5]
+        )
     }
 }
 
@@ -482,6 +412,7 @@ private final class SeededRandomGenerator {
     func makeTicketFast(euroMaximum: Int) -> Ticket {
         var numbers: [Int] = []
         numbers.reserveCapacity(5)
+
         while numbers.count < 5 {
             let value = nextInt(upperBound: 50) + 1
             if !numbers.contains(value) {
@@ -492,6 +423,7 @@ private final class SeededRandomGenerator {
 
         var euroNumbers: [Int] = []
         euroNumbers.reserveCapacity(2)
+
         while euroNumbers.count < 2 {
             let value = nextInt(upperBound: euroMaximum) + 1
             if !euroNumbers.contains(value) {
