@@ -21,7 +21,9 @@ final class WeightSweepEngine {
         var tickets = 0
     }
 
-    private let profileCount = 64
+    // 32 deterministic profiles: enough exploration without turning one run
+    // into an unnecessarily long optimization job.
+    private let profileCount = 32
     private let candidateCountMinimum = 301
 
     func run(
@@ -41,6 +43,7 @@ final class WeightSweepEngine {
         let profiles = makeProfiles()
         let generator = TicketGenerator()
         let candidateCount = max(AppSettings.backtestCandidateCount + 1, candidateCountMinimum)
+        let scoreEngines = profiles.map { ScoreEngine(goal: $0.goal) }
 
         var validationTotals = Array(repeating: Aggregate(), count: profiles.count)
 
@@ -68,13 +71,12 @@ final class WeightSweepEngine {
                 goal: OptimizationGoal(),
                 hillClimbingIterations: 0
             )
-            let cache = ScoreCache(draws: trainingDraws)
 
             for profileIndex in profiles.indices {
                 let best = bestTickets(
                     candidates: candidates,
-                    cache: cache,
-                    goal: profiles[profileIndex].goal,
+                    draws: trainingDraws,
+                    scoreEngine: scoreEngines[profileIndex],
                     limit: recommendationCount
                 )
                 let hits = best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
@@ -130,6 +132,7 @@ final class WeightSweepEngine {
         print("🔒 Jetzt erst folgt der unabhängige Holdout-Test.")
 
         // Phase 2: freeze the selected profile and evaluate it only on unseen draws.
+        let winnerScoreEngine = ScoreEngine(goal: winner.goal)
         var holdoutHits = 0
         var holdoutEuroHits = 0
         var holdoutTickets = 0
@@ -143,11 +146,10 @@ final class WeightSweepEngine {
                 goal: OptimizationGoal(),
                 hillClimbingIterations: 0
             )
-            let cache = ScoreCache(draws: trainingDraws)
             let best = bestTickets(
                 candidates: candidates,
-                cache: cache,
-                goal: winner.goal,
+                draws: trainingDraws,
+                scoreEngine: winnerScoreEngine,
                 limit: recommendationCount
             )
 
@@ -186,14 +188,13 @@ final class WeightSweepEngine {
 
     private func bestTickets(
         candidates: [Ticket],
-        cache: ScoreCache,
-        goal: OptimizationGoal,
+        draws: [EuroJackpotDraw],
+        scoreEngine: ScoreEngine,
         limit: Int
     ) -> [Ticket] {
 
         guard !candidates.isEmpty else { return [] }
-        let scoreEngine = ScoreEngine(cache: cache, goal: goal)
-        let scored = candidates.map { ($0, scoreEngine.score(ticket: $0)) }
+        let scored = candidates.map { ($0, scoreEngine.score(ticket: $0, draws: draws)) }
             .sorted { $0.1 > $1.1 }
 
         var result: [Ticket] = []
