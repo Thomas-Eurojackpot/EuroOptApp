@@ -86,7 +86,7 @@ final class NormalDistributionTestEngine {
         print("===================================")
         print("🧪 NORMALVERTEILUNG – HOLDOUT")
         print("===================================")
-        print(String(format: "Normal-Kriterium    : Summe ~ N(127.5, 30.923²)"))
+        print("Normal-Kriterium    : Summe ~ N(127.5, 30.923²)")
         print(String(format: "Ø Haupttreffer      : %.4f", holdout.mainAverage))
         print(String(format: "Ø Eurotreffer       : %.4f", holdout.euroAverage))
         print(String(format: "Ø Euro-Basis        : %.4f", holdout.euroExpected))
@@ -98,10 +98,17 @@ final class NormalDistributionTestEngine {
         print("- Das Kriterium wurde nicht aus dem Holdout gelernt.")
         print("- Es verändert Alpha 7.5 nicht.")
         print("- Ein positiver Holdout-Wert allein beweist keinen echten Vorteil.")
-        print("- Für eine belastbare Aussage muss der Effekt anschließend gegen den empirischen Zufallsbenchmark geprüft werden.")
+        print("- Anschließend folgt automatisch der gepaarte empirische Zufallsbenchmark auf exakt demselben Holdout.")
         print("")
         print(String(format: "⏱ Normalverteilungstest: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
+
+        // Der zweite Schritt ist bewusst automatisch: gleicher Holdout,
+        // festes Normal-Kriterium, keine erneute Optimierung.
+        NormalDistributionBenchmarkEngine().run(
+            draws: draws,
+            recommendationCount: recommendationCount
+        )
     }
 
     private struct Result {
