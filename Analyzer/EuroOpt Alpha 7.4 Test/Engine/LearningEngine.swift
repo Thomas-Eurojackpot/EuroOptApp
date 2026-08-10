@@ -2,10 +2,21 @@
 //  LearningEngine.swift
 //  EuroOpt
 //
-//  Alpha 7.4 Test
+//  Alpha 7.5
 //
 
 import Foundation
+
+struct HoldoutResult {
+    let trainingDrawCount: Int
+    let holdoutDrawCount: Int
+    let learnedGoal: OptimizationGoal
+    let averageHits: Double
+    let averageEuroHits: Double
+    let randomMain: Double
+    let randomEuro: Double
+    let duration: Double
+}
 
 final class LearningEngine {
 
@@ -26,12 +37,14 @@ final class LearningEngine {
         draws: [EuroJackpotDraw],
         candidateCount: Int,
         recommendationCount: Int,
-        generations: Int
+        generations: Int,
+        initialGoal: OptimizationGoal? = nil,
+        persist: Bool = true
     ) -> OptimizationGoal {
 
         guard draws.count > 50 else {
             print("❌ Zu wenige Ziehungen für Walk-Forward-Lernen")
-            return OptimizationGoalStore.shared.currentGoal
+            return initialGoal ?? OptimizationGoalStore.shared.currentGoal
         }
 
         let start = Date()
@@ -43,7 +56,7 @@ final class LearningEngine {
             4
         )
 
-        var currentGoal = OptimizationGoalStore.shared.currentGoal
+        var currentGoal = initialGoal ?? OptimizationGoalStore.shared.currentGoal
 
         var testedDraws = 0
         var totalHits = 0
@@ -72,12 +85,13 @@ final class LearningEngine {
             let trainingDraws = Array(draws.prefix(index))
             let targetDraw = draws[index]
 
-            // Der Kandidatenpool ist absichtlich unabhängig von der zu
-            // testenden Gewichtung. Nur die EQI-Bewertung darf sich ändern.
+            // Der Kandidatenpool bleibt unabhängig von der Zielziehung.
+            // Das EQI-Ziel wird nur für die Bewertung/Hill-Climbing verwendet.
             let candidates = generator.generate(
                 count: learningCandidateCount,
                 draws: trainingDraws,
-                hillClimbingIterations: learningHillClimbingIterations
+                hillClimbingIterations: learningHillClimbingIterations,
+                goal: currentGoal
             )
 
             // -------------------------------------------------------------
@@ -162,10 +176,11 @@ final class LearningEngine {
 
         }
 
-        // Erst NACH dem vollständigen Walk-Forward-Lauf wird das finale
-        // adaptive Profil übernommen. Keine Zielziehung wurde zur Erstellung
-        // ihrer eigenen Empfehlung verwendet.
-        OptimizationGoalStore.shared.update(currentGoal)
+        // Beim Holdout-Test darf das Trainingsergebnis nicht automatisch
+        // gespeichert werden. Nur der normale Lernlauf übernimmt das Profil.
+        if persist {
+            OptimizationGoalStore.shared.update(currentGoal)
+        }
 
         let averageHits = totalTickets > 0
             ? Double(totalHits) / Double(totalTickets)
@@ -210,6 +225,172 @@ final class LearningEngine {
         print("===================================")
 
         return currentGoal
+
+    }
+
+    func runHoldout(
+        draws: [EuroJackpotDraw],
+        candidateCount: Int,
+        recommendationCount: Int,
+        generations: Int
+    ) -> HoldoutResult? {
+
+        guard draws.count >= 100 else {
+            print("❌ Zu wenige Ziehungen für einen Holdout-Test")
+            return nil
+        }
+
+        let start = Date()
+
+        // Die letzten 20 % bleiben bis zum eigentlichen Test vollständig
+        // außerhalb des Lernens.
+        let splitIndex = max(
+            50,
+            min(
+                draws.count - 50,
+                Int(Double(draws.count) * 0.80)
+            )
+        )
+
+        let trainingDraws = Array(draws.prefix(splitIndex))
+        let holdoutDraws = Array(draws.dropFirst(splitIndex))
+
+        print("")
+        print("===================================")
+        print("🧪 ALPHA 7.5 HOLDOUT-TEST")
+        print("===================================")
+        print("Gesamtziehungen    : \(draws.count)")
+        print("Training           : \(trainingDraws.count)")
+        print("Holdout            : \(holdoutDraws.count)")
+        print("Holdout-Anteil     : 20 %")
+        print("Profil              : TRAINING → danach eingefroren")
+        print("===================================")
+
+        // Wichtig: Das Training startet immer beim unveränderten Standardprofil.
+        // Das verhindert, dass ein bereits zuvor gelerntes Profil in den
+        // Holdout-Test hineinleakt.
+        let learnedGoal = learn(
+            draws: trainingDraws,
+            candidateCount: candidateCount,
+            recommendationCount: recommendationCount,
+            generations: generations,
+            initialGoal: OptimizationGoal(),
+            persist: false
+        )
+
+        var totalHits = 0
+        var totalEuroHits = 0
+        var totalTickets = 0
+
+        let testCandidateCount = min(
+            candidateCount,
+            AppSettings.backtestCandidateCount
+        )
+
+        let testHillClimbingIterations = AppSettings.backtestHillClimbingIterations
+
+        // Das Profil bleibt über den kompletten Holdout unverändert.
+        // Für jede Zielziehung dürfen aber nur die bis dahin bekannten
+        // Ziehungen zur Kandidatenerzeugung und Bewertung verwendet werden.
+        for (offset, targetDraw) in holdoutDraws.enumerated() {
+
+            let historyEnd = splitIndex + offset
+            let history = Array(draws.prefix(historyEnd))
+
+            let candidates = generator.generate(
+                count: testCandidateCount,
+                draws: history,
+                hillClimbingIterations: testHillClimbingIterations,
+                goal: learnedGoal
+            )
+
+            let tickets = optimizer.bestTickets(
+                from: candidates,
+                draws: history,
+                goal: learnedGoal,
+                limit: recommendationCount
+            )
+
+            let evaluation = evaluate(
+                tickets: tickets,
+                target: targetDraw
+            )
+
+            totalHits += evaluation.totalHits
+            totalEuroHits += evaluation.totalEuroHits
+            totalTickets += evaluation.ticketCount
+
+            let current = offset + 1
+
+            if current == 1 || current % 10 == 0 || current == holdoutDraws.count {
+                let avgHits = totalTickets > 0
+                    ? Double(totalHits) / Double(totalTickets)
+                    : 0
+
+                let avgEuroHits = totalTickets > 0
+                    ? Double(totalEuroHits) / Double(totalTickets)
+                    : 0
+
+                print(
+                    String(
+                        format: "🧪 Holdout %3d/%3d | Ø %.3f / %.3f",
+                        current,
+                        holdoutDraws.count,
+                        avgHits,
+                        avgEuroHits
+                    )
+                )
+            }
+
+        }
+
+        let averageHits = totalTickets > 0
+            ? Double(totalHits) / Double(totalTickets)
+            : 0
+
+        let averageEuroHits = totalTickets > 0
+            ? Double(totalEuroHits) / Double(totalTickets)
+            : 0
+
+        let randomMain = 0.5
+        let randomEuro = 1.0 / 3.0
+        let duration = Date().timeIntervalSince(start)
+
+        print("")
+        print("===================================")
+        print("🧪 ALPHA 7.5 HOLDOUT-ERGEBNIS")
+        print("===================================")
+        print("Trainingziehungen   : \(trainingDraws.count)")
+        print("Holdoutziehungen    : \(holdoutDraws.count)")
+        print(String(format: "Ø Haupttreffer       : %.3f", averageHits))
+        print(String(format: "Ø Eurotreffer        : %.3f", averageEuroHits))
+        print(String(format: "Zufall theoretisch   : %.3f / %.3f", randomMain, randomEuro))
+        print(String(format: "Δ Haupt vs Zufall    : %+.3f", averageHits - randomMain))
+        print(String(format: "Δ Euro vs Zufall     : %+.3f", averageEuroHits - randomEuro))
+        print("")
+        print("Eingefrorene Gewichte")
+        print(String(format: "Frequency : %.0f", learnedGoal.frequencyWeight))
+        print(String(format: "Pair      : %.0f", learnedGoal.pairWeight))
+        print(String(format: "Even/Odd  : %.0f", learnedGoal.evenOddWeight))
+        print(String(format: "High/Low  : %.0f", learnedGoal.highLowWeight))
+        print(String(format: "Sum       : %.0f", learnedGoal.sumWeight))
+        print(String(format: "Gap       : %.0f", learnedGoal.gapWeight))
+        print("")
+        print("Interpretation: Das Profil wurde ausschließlich auf dem Training gelernt.")
+        print("Der Holdout wurde danach nicht mehr zum Lernen verwendet.")
+        print(String(format: "⏱ Holdout-Test     : %.2f Sekunden", duration))
+        print("===================================")
+
+        return HoldoutResult(
+            trainingDrawCount: trainingDraws.count,
+            holdoutDrawCount: holdoutDraws.count,
+            learnedGoal: learnedGoal,
+            averageHits: averageHits,
+            averageEuroHits: averageEuroHits,
+            randomMain: randomMain,
+            randomEuro: randomEuro,
+            duration: duration
+        )
 
     }
 
