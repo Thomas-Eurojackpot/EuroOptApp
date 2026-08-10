@@ -27,6 +27,7 @@ final class OptimizerViewModel: ObservableObject {
     private let optimizer = OptimizerEngine()
     private let generator = TicketGenerator()
     private let backtest = BacktestEngine()
+    private let componentBacktest = ComponentBacktestEngine()
 
     // MARK: - Share Text
 
@@ -159,10 +160,15 @@ final class OptimizerViewModel: ObservableObject {
 
             }
 
+            self.componentBacktest.run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+
             DispatchQueue.main.async {
 
                 self.backtestProgress = 1.0
-                self.backtestStatus = "Backtest beendet"
+                self.backtestStatus = "Backtest + Komponententest beendet"
                 self.isBacktestRunning = false
 
             }
