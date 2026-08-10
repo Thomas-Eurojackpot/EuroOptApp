@@ -2,7 +2,7 @@
 //  OptimizerViewModel.swift
 //  EuroOpt
 //
-//  Alpha 7.0
+//  Alpha 7.5
 //
 
 import Foundation
@@ -21,6 +21,10 @@ final class OptimizerViewModel: ObservableObject {
 
     @Published var isLearning = false
     @Published var learningStatus = "Bereit"
+
+    @Published var isHoldoutRunning = false
+    @Published var holdoutStatus = "Bereit"
+    @Published var lastHoldoutResult: HoldoutResult?
 
     @Published var lastBacktestStatistics: BacktestStatistics?
     @Published var lastBacktestDuration: Double = 0
@@ -180,6 +184,37 @@ final class OptimizerViewModel: ObservableObject {
 
                 self.learningStatus = "Walk-Forward-Lernen beendet"
                 self.isLearning = false
+
+            }
+
+        }
+
+    }
+
+    func runHoldout() {
+
+        let draws = database.allDraws()
+
+        isHoldoutRunning = true
+        holdoutStatus = "Training auf 80 % der Daten..."
+        lastHoldoutResult = nil
+
+        DispatchQueue.global(qos: .userInitiated).async {
+
+            let result = self.learningEngine.runHoldout(
+                draws: draws,
+                candidateCount: AppSettings.backtestCandidateCount,
+                recommendationCount: AppSettings.recommendationCount,
+                generations: 8
+            )
+
+            DispatchQueue.main.async {
+
+                self.lastHoldoutResult = result
+                self.holdoutStatus = result == nil
+                    ? "Holdout-Test nicht möglich"
+                    : "Holdout-Test beendet"
+                self.isHoldoutRunning = false
 
             }
 
