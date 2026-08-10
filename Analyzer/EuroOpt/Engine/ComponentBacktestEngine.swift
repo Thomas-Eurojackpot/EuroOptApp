@@ -2,7 +2,7 @@
 //  ComponentBacktestEngine.swift
 //  EuroOpt
 //
-//  Alpha 7.4 - EQI component analysis
+//  Alpha 7.5 - EQI component analysis + adaptive learner
 //
 
 import Foundation
@@ -21,6 +21,102 @@ final class ComponentBacktestEngine {
         var tests = 0
     }
 
+    // MARK: - Walk-forward "Gehirn"
+    //
+    // The learner is deliberately online:
+    // - it starts with equal trust in all components
+    // - it selects the next draw using only information known so far
+    // - after the target draw is revealed, component performance is fed back
+    // - no future draw can influence the current decision
+    //
+    // This is not a claim that lottery draws are predictable. It is a
+    // controlled test of whether component performance shows repeatable
+    // walk-forward stability.
+    private final class AdaptiveLearner {
+
+        private enum Component: CaseIterable {
+            case frequency
+            case pair
+            case evenOdd
+            case highLow
+            case sum
+            case gap
+
+            var name: String {
+                switch self {
+                case .frequency: return "Frequenz"
+                case .pair: return "Paare"
+                case .evenOdd: return "Gerade/Ungerade"
+                case .highLow: return "Hoch/Niedrig"
+                case .sum: return "Summe"
+                case .gap: return "Abstände"
+                }
+            }
+        }
+
+        private var weights: [Component: Double]
+        private let learningRate = 2.0
+        private let minimumWeight = 0.03
+
+        init() {
+            let initial = 1.0 / Double(Component.allCases.count)
+            self.weights = Dictionary(
+                uniqueKeysWithValues: Component.allCases.map { ($0, initial) }
+            )
+        }
+
+        var goal: OptimizationGoal {
+            OptimizationGoal(
+                frequencyWeight: normalized(.frequency),
+                pairWeight: normalized(.pair),
+                evenOddWeight: normalized(.evenOdd),
+                highLowWeight: normalized(.highLow),
+                sumWeight: normalized(.sum),
+                gapWeight: normalized(.gap)
+            )
+        }
+
+        func update(
+            averageHitsByComponent: [String: Double]
+        ) {
+            let randomBaseline = 0.50
+
+            for component in Component.allCases {
+                let observed = averageHitsByComponent[component.name] ?? randomBaseline
+                let delta = max(-0.50, min(0.50, observed - randomBaseline))
+                let oldWeight = weights[component] ?? 1.0
+                weights[component] = oldWeight * exp(learningRate * delta)
+            }
+
+            applyFloorAndNormalize()
+        }
+
+        func report() -> [(name: String, percent: Double)] {
+            Component.allCases.map {
+                ($0.name, normalized($0) * 100.0)
+            }
+        }
+
+        private func normalized(_ component: Component) -> Double {
+            let total = weights.values.reduce(0, +)
+            guard total > 0 else { return 1.0 / Double(Component.allCases.count) }
+            return (weights[component] ?? 0) / total
+        }
+
+        private func applyFloorAndNormalize() {
+            for component in Component.allCases {
+                weights[component] = max(weights[component] ?? 0, minimumWeight)
+            }
+
+            let total = weights.values.reduce(0, +)
+            guard total > 0 else { return }
+
+            for component in Component.allCases {
+                weights[component] = (weights[component] ?? 0) / total
+            }
+        }
+    }
+
     func run(
         draws: [EuroJackpotDraw],
         recommendationCount: Int
@@ -37,6 +133,12 @@ final class ComponentBacktestEngine {
             ($0.name, Accumulator())
         })
 
+        let learner = AdaptiveLearner()
+        var adaptiveHits = 0
+        var adaptiveEuroHits = 0
+        var adaptiveTickets = 0
+        var adaptiveTests = 0
+
         // Every model receives exactly the same candidate pool for a given
         // target draw. Candidate generation is deliberately kept separate
         // from component scoring so this test isolates EQI selection logic.
@@ -51,6 +153,7 @@ final class ComponentBacktestEngine {
         print("Kandidaten je Test  : \(candidateCount)")
         print("Empfehlungen        : \(recommendationCount)")
         print("Hill Climbing       : 0")
+        print("🧠 Adaptives Lernen : WALK-FORWARD")
         print("")
 
         for index in 100..<draws.count {
@@ -63,6 +166,31 @@ final class ComponentBacktestEngine {
                 goal: OptimizationGoal(),
                 hillClimbingIterations: 0
             )
+
+            // The learner makes its decision BEFORE seeing targetDraw.
+            let adaptiveGoal = learner.goal
+            let adaptiveOptimizer = OptimizerEngine()
+            let adaptiveBest = adaptiveOptimizer.bestTickets(
+                from: candidates,
+                draws: trainingDraws,
+                goal: adaptiveGoal,
+                limit: recommendationCount
+            )
+
+            let adaptiveMainHits = adaptiveBest.reduce(0) { partial, candidate in
+                partial + Set(candidate.ticket.numbers).intersection(targetDraw.numbers).count
+            }
+
+            let adaptiveEuros = adaptiveBest.reduce(0) { partial, candidate in
+                partial + Set(candidate.ticket.euroNumbers).intersection(targetDraw.euroNumbers).count
+            }
+
+            adaptiveHits += adaptiveMainHits
+            adaptiveEuroHits += adaptiveEuros
+            adaptiveTickets += adaptiveBest.count
+            adaptiveTests += 1
+
+            var observedExpertHits: [String: Double] = [:]
 
             for model in models {
                 let optimizer = OptimizerEngine()
@@ -81,11 +209,17 @@ final class ComponentBacktestEngine {
                     partial + Set(candidate.ticket.euroNumbers).intersection(targetDraw.euroNumbers).count
                 }
 
+                let averageHits = best.isEmpty ? 0.50 : Double(hits) / Double(best.count)
+                observedExpertHits[model.name] = averageHits
+
                 totals[model.name, default: Accumulator()].hits += hits
                 totals[model.name, default: Accumulator()].euroHits += euroHits
                 totals[model.name, default: Accumulator()].tickets += best.count
                 totals[model.name, default: Accumulator()].tests += 1
             }
+
+            // Only now is the target outcome allowed to update the learner.
+            learner.update(averageHitsByComponent: observedExpertHits)
 
             if (index - 99).isMultiple(of: 100) {
                 print("... \(index - 99) von \(draws.count - 100) Ziehungen")
@@ -117,6 +251,32 @@ final class ComponentBacktestEngine {
                 averageEuroHits,
                 delta
             ))
+        }
+
+        print("-----------------------------------")
+        print("🧠 ADAPTIVES LERNHIRN")
+        print("-----------------------------------")
+
+        if adaptiveTickets > 0 {
+            let adaptiveAverageHits = Double(adaptiveHits) / Double(adaptiveTickets)
+            let adaptiveAverageEuroHits = Double(adaptiveEuroHits) / Double(adaptiveTickets)
+            let mainDelta = adaptiveAverageHits - randomMain
+            let euroDelta = adaptiveAverageEuroHits - randomEuro
+
+            print(String(format: "Ø Haupttreffer : %.3f", adaptiveAverageHits))
+            print(String(format: "Ø Eurotreffer  : %.3f", adaptiveAverageEuroHits))
+            print(String(format: "Δ Haupt vs Zufall : %+.3f", mainDelta))
+            print(String(format: "Δ Euro vs Zufall  : %+.3f", euroDelta))
+            print("")
+            print("Gelerntes Profil:")
+
+            for item in learner.report() {
+                print(String(format: "%-18@ %6.2f %%", item.name, item.percent))
+            }
+
+            print("")
+            print("Regel: Update erst NACH der jeweiligen Ziehung.")
+            print("Damit bleibt der Lernlauf zeitlich sauber und ohne Look-ahead.")
         }
 
         print("-----------------------------------")
