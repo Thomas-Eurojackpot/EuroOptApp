@@ -11,8 +11,6 @@ import Combine
 @MainActor
 final class OptimizerViewModel: ObservableObject {
 
-    // MARK: - Published Properties
-
     @Published var reports: [OptimizerReport] = []
 
     @Published var isCalculating = false
@@ -27,15 +25,11 @@ final class OptimizerViewModel: ObservableObject {
     @Published var lastBacktestStatistics: BacktestStatistics?
     @Published var lastBacktestDuration: Double = 0
 
-    // MARK: - Private
-
     private let database = DrawDatabase()
     private let optimizer = OptimizerEngine()
     private let generator = TicketGenerator()
     private let backtest = BacktestEngine()
     private let learningEngine = LearningEngine()
-
-    // MARK: - Share Text
 
     var shareText: String {
 
@@ -83,8 +77,6 @@ final class OptimizerViewModel: ObservableObject {
 
     }
 
-    // MARK: - Empfehlungen
-
     func calculateRecommendations(
         candidateCount: Int,
         recommendationCount: Int
@@ -117,8 +109,6 @@ final class OptimizerViewModel: ObservableObject {
         isCalculating = false
 
     }
-
-    // MARK: - Backtest
 
     func runBacktest() {
 
@@ -160,7 +150,6 @@ final class OptimizerViewModel: ObservableObject {
 
                 self.lastBacktestStatistics = statistics
                 self.lastBacktestDuration = duration
-
                 self.backtestProgress = 1
                 self.backtestStatus = "Backtest beendet"
                 self.isBacktestRunning = false
@@ -171,32 +160,25 @@ final class OptimizerViewModel: ObservableObject {
 
     }
 
-    // MARK: - Lernen
-
     func startLearning() {
 
         let draws = database.allDraws()
 
         isLearning = true
-        learningStatus = "Lernphase läuft..."
+        learningStatus = "Walk-Forward-Lernen läuft..."
 
         DispatchQueue.global(qos: .userInitiated).async {
 
             _ = self.learningEngine.learn(
-
                 draws: draws,
-
                 candidateCount: AppSettings.backtestCandidateCount,
-
                 recommendationCount: AppSettings.recommendationCount,
-
-                generations: 25
-
+                generations: 8
             )
 
             DispatchQueue.main.async {
 
-                self.learningStatus = "Lernphase beendet"
+                self.learningStatus = "Walk-Forward-Lernen beendet"
                 self.isLearning = false
 
             }
