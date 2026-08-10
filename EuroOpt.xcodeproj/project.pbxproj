@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		9681AA44301FE7A300B71329 /* EUROOPT_SPECIFICATION.md in Resources */ = {isa = PBXBuildFile; fileRef = 9681AA43301FE76600B71329 /* EUROOPT_SPECIFICATION.md */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		9681A97E301F65D000B71329 /* EuroOpt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EuroOpt.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9681AA43301FE76600B71329 /* EUROOPT_SPECIFICATION.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = EUROOPT_SPECIFICATION.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -32,7 +37,8 @@
 		9681A975301F65D000B71329 = {
 			isa = PBXGroup;
 			children = (
-				9681A980301F65D000B71329 /* EuroOpt */,
+				9681AA43301FE76600B71329 /* EUROOPT_SPECIFICATION.md */,
+				9681AA5830206D3C00B71329 /* Analyzer */,
 				9681A97F301F65D000B71329 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -43,6 +49,14 @@
 				9681A97E301F65D000B71329 /* EuroOpt.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		9681AA5830206D3C00B71329 /* Analyzer */ = {
+			isa = PBXGroup;
+			children = (
+				9681A980301F65D000B71329 /* EuroOpt */,
+			);
+			path = Analyzer;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -109,6 +123,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9681AA44301FE7A300B71329 /* EUROOPT_SPECIFICATION.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -247,7 +262,17 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -289,7 +314,17 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
