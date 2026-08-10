@@ -54,6 +54,7 @@ final class WeightSweepEngine {
         print("Profile             : \(profiles.count)")
         print("Kandidaten je Test  : \(candidateCount)")
         print("Empfehlungen        : \(recommendationCount)")
+        print("Auswertung          : kombinierter Haupt-/Euro-Überschuss")
         print("")
         print("🔒 Holdout bleibt bis zur Gewichtswahl unangetastet.")
         print("")
@@ -90,41 +91,36 @@ final class WeightSweepEngine {
         }
 
         let ranked = profiles.indices.sorted { lhs, rhs in
-            let left = validationTotals[lhs]
-            let right = validationTotals[rhs]
-            let leftAverage = left.tickets > 0 ? Double(left.hits) / Double(left.tickets) : 0
-            let rightAverage = right.tickets > 0 ? Double(right.hits) / Double(right.tickets) : 0
-            return leftAverage > rightAverage
+            validationScore(validationTotals[lhs]) > validationScore(validationTotals[rhs])
         }
 
         guard let winnerIndex = ranked.first else { return }
         let winner = profiles[winnerIndex]
         let winnerValidation = validationTotals[winnerIndex]
-        let validationAverage = winnerValidation.tickets > 0
-            ? Double(winnerValidation.hits) / Double(winnerValidation.tickets)
-            : 0
-        let validationEuroAverage = winnerValidation.tickets > 0
-            ? Double(winnerValidation.euroHits) / Double(winnerValidation.tickets)
-            : 0
+        let validationAverage = averageMain(winnerValidation)
+        let validationEuroAverage = averageEuro(winnerValidation)
 
         print("")
         print("-----------------------------------")
-        print("TOP 10 VALIDATION")
+        print("TOP 10 VALIDATION – KOMBINATIONEN")
         print("-----------------------------------")
         for (rank, profileIndex) in ranked.prefix(10).enumerated() {
             let total = validationTotals[profileIndex]
-            let average = total.tickets > 0 ? Double(total.hits) / Double(total.tickets) : 0
-            print(String(format: "%2d. P%02d  Haupt %.3f  Euro %.3f  %@",
+            print(String(format: "%2d. P%02d  Haupt %.3f  Euro %.3f  Score %+.3f  %@",
                          rank + 1,
                          profiles[profileIndex].id,
-                         average,
-                         total.tickets > 0 ? Double(total.euroHits) / Double(total.tickets) : 0,
+                         averageMain(total),
+                         averageEuro(total),
+                         validationScore(total),
                          weightLabel(profiles[profileIndex])))
         }
 
         print("")
         print("🏆 GEWÄHLTES VALIDATION-PROFIL P\(String(format: "%02d", winner.id))")
-        print(String(format: "Haupt %.3f | Euro %.3f", validationAverage, validationEuroAverage))
+        print(String(format: "Haupt %.3f | Euro %.3f | kombinierter Überschuss %+.3f",
+                     validationAverage,
+                     validationEuroAverage,
+                     validationScore(winnerValidation)))
         print(weightLabel(winner))
         print("")
         print("🔒 Jetzt erst folgt der unabhängige Holdout-Test.")
@@ -175,9 +171,10 @@ final class WeightSweepEngine {
         print(String(format: "Zufall theoretisch  : %.3f / %.3f", randomMain, randomEuro))
         print(String(format: "Δ Haupt vs Zufall   : %+.3f", holdoutAverage - randomMain))
         print(String(format: "Δ Euro vs Zufall    : %+.3f", holdoutEuroAverage - randomEuro))
+        print(String(format: "Kombinierter Δ      : %+.3f", (holdoutAverage - randomMain) + (holdoutEuroAverage - randomEuro)))
         print("")
-        print("Interpretation: Die Gewichte wurden NICHT auf dem Holdout optimiert.")
-        print("Nur wenn der Holdout ebenfalls positiv ist, ist das Profil interessant.")
+        print("Interpretation: Das Profil wurde ausschließlich auf der Validation-Hälfte gewählt.")
+        print("Der Holdout wurde weder zur Gewichtswahl noch zur Kombinationsermittlung verwendet.")
         print("")
         print(String(format: "⏱ Weight-Sweep: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
@@ -309,39 +306,65 @@ final class WeightSweepEngine {
         return count
     }
 
+    private func averageMain(_ aggregate: Aggregate) -> Double {
+        aggregate.tickets > 0 ? Double(aggregate.hits) / Double(aggregate.tickets) : 0
+    }
+
+    private func averageEuro(_ aggregate: Aggregate) -> Double {
+        aggregate.tickets > 0 ? Double(aggregate.euroHits) / Double(aggregate.tickets) : 0
+    }
+
+    private func validationScore(_ aggregate: Aggregate) -> Double {
+        let mainDelta = averageMain(aggregate) - 0.50
+        let euroDelta = averageEuro(aggregate) - (1.0 / 3.0)
+        return mainDelta + euroDelta
+    }
+
     private func makeProfiles() -> [Profile] {
         var profiles: [Profile] = []
 
-        let fixed: [[Double]] = [
+        // 6 single-factor profiles.
+        let singles: [[Double]] = [
             [100, 0, 0, 0, 0, 0],
             [0, 100, 0, 0, 0, 0],
             [0, 0, 100, 0, 0, 0],
             [0, 0, 0, 100, 0, 0],
             [0, 0, 0, 0, 100, 0],
-            [0, 0, 0, 0, 0, 100],
-            [30, 25, 15, 15, 15, 0]
+            [0, 0, 0, 0, 0, 100]
         ]
 
-        for weights in fixed {
+        for weights in singles {
             profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
         }
 
-        var state: UInt64 = 0xA7_5001_2026
-        while profiles.count < profileCount {
-            var raw: [Double] = []
-            raw.reserveCapacity(6)
-            var total = 0.0
-            for _ in 0..<6 {
-                state = state &* 6364136223846793005 &+ 1442695040888963407
-                let value = Double(Int(state % 100) + 1)
-                raw.append(value)
-                total += value
+        // 15 pairwise combinations at 50/50.
+        for lhs in 0..<6 {
+            for rhs in (lhs + 1)..<6 {
+                var weights = Array(repeating: 0.0, count: 6)
+                weights[lhs] = 50
+                weights[rhs] = 50
+                profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
             }
-            let weights = raw.map { $0 / total * 100.0 }
-            profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
         }
 
-        return profiles
+        // 10 three-factor combinations at 34/33/33.
+        for a in 0..<4 {
+            for b in (a + 1)..<5 {
+                for c in (b + 1)..<6 {
+                    var weights = Array(repeating: 0.0, count: 6)
+                    weights[a] = 34
+                    weights[b] = 33
+                    weights[c] = 33
+                    profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
+                }
+            }
+        }
+
+        // One broad diversified baseline.
+        let diversified = [20.0, 20.0, 15.0, 15.0, 15.0, 15.0]
+        profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(diversified), weights: diversified))
+
+        return Array(profiles.prefix(profileCount))
     }
 
     private func makeGoal(_ weights: [Double]) -> OptimizationGoal {
