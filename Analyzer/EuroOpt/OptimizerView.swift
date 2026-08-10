@@ -20,6 +20,7 @@ struct OptimizerView: View {
                 actionSection
                 learningSection
                 holdoutSection
+                confirmationSection
                 recommendationsSection
                 backtestSection
             }
@@ -83,7 +84,8 @@ struct OptimizerView: View {
                 viewModel.isCalculating ||
                 viewModel.isBacktestRunning ||
                 viewModel.isLearning ||
-                viewModel.isHoldoutRunning
+                viewModel.isHoldoutRunning ||
+                viewModel.isConfirmationRunning
             )
 
             Button {
@@ -97,7 +99,8 @@ struct OptimizerView: View {
                 viewModel.isCalculating ||
                 viewModel.isBacktestRunning ||
                 viewModel.isLearning ||
-                viewModel.isHoldoutRunning
+                viewModel.isHoldoutRunning ||
+                viewModel.isConfirmationRunning
             )
 
             Button {
@@ -116,7 +119,8 @@ struct OptimizerView: View {
                 viewModel.isCalculating ||
                 viewModel.isBacktestRunning ||
                 viewModel.isLearning ||
-                viewModel.isHoldoutRunning
+                viewModel.isHoldoutRunning ||
+                viewModel.isConfirmationRunning
             )
         }
     }
@@ -150,7 +154,8 @@ struct OptimizerView: View {
                     viewModel.isLearning ||
                     viewModel.isCalculating ||
                     viewModel.isBacktestRunning ||
-                    viewModel.isHoldoutRunning
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isConfirmationRunning
                 )
 
                 Button("Standardprofil wiederherstellen") {
@@ -161,7 +166,8 @@ struct OptimizerView: View {
                     viewModel.isLearning ||
                     viewModel.isCalculating ||
                     viewModel.isBacktestRunning ||
-                    viewModel.isHoldoutRunning
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isConfirmationRunning
                 )
 
                 Text(viewModel.learningStatus)
@@ -194,6 +200,44 @@ struct OptimizerView: View {
                     .foregroundStyle(.secondary)
 
                 Text(viewModel.holdoutStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var confirmationSection: some View {
+        GroupBox("🧪 G/U-Bestätigungstest") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Prüft das bereits festgelegte Profil G/U 100 % erneut auf den letzten 100 Ziehungen. Es werden keine Gewichte optimiert oder verändert.")
+                    .foregroundStyle(.secondary)
+
+                Text("Hinweis: Die letzten 100 Ziehungen waren bereits Teil des bisherigen Holdouts. Deshalb ist dies eine Bestätigungsscheibe und kein statistisch unabhängiges zweites Experiment.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    viewModel.runGUConfirmation()
+                } label: {
+                    if viewModel.isConfirmationRunning {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("G/U-Bestätigung starten", systemImage: "scope")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning
+                )
+
+                Text(viewModel.confirmationStatus)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
