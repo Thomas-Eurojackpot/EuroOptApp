@@ -21,6 +21,7 @@ struct OptimizerView: View {
                 learningSection
                 holdoutSection
                 randomBenchmarkSection
+                normalDistributionSection
                 confirmationSection
                 recommendationsSection
                 backtestSection
@@ -87,6 +88,7 @@ struct OptimizerView: View {
                 viewModel.isLearning ||
                 viewModel.isHoldoutRunning ||
                 viewModel.isRandomBenchmarkRunning ||
+                viewModel.isNormalDistributionRunning ||
                 viewModel.isConfirmationRunning
             )
 
@@ -103,6 +105,7 @@ struct OptimizerView: View {
                 viewModel.isLearning ||
                 viewModel.isHoldoutRunning ||
                 viewModel.isRandomBenchmarkRunning ||
+                viewModel.isNormalDistributionRunning ||
                 viewModel.isConfirmationRunning
             )
 
@@ -124,6 +127,7 @@ struct OptimizerView: View {
                 viewModel.isLearning ||
                 viewModel.isHoldoutRunning ||
                 viewModel.isRandomBenchmarkRunning ||
+                viewModel.isNormalDistributionRunning ||
                 viewModel.isConfirmationRunning
             )
         }
@@ -160,6 +164,7 @@ struct OptimizerView: View {
                     viewModel.isBacktestRunning ||
                     viewModel.isHoldoutRunning ||
                     viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
                     viewModel.isConfirmationRunning
                 )
 
@@ -173,6 +178,7 @@ struct OptimizerView: View {
                     viewModel.isBacktestRunning ||
                     viewModel.isHoldoutRunning ||
                     viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
                     viewModel.isConfirmationRunning
                 )
 
@@ -241,10 +247,51 @@ struct OptimizerView: View {
                     viewModel.isBacktestRunning ||
                     viewModel.isLearning ||
                     viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
                     viewModel.isConfirmationRunning
                 )
 
                 Text(viewModel.randomBenchmarkStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var normalDistributionSection: some View {
+        GroupBox("📐 Normalverteilung – isolierter Test") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Prüft separat, ob die Summe der 5 Hauptzahlen als annähernd normalverteilte Größe für die Tippauswahl einen messbaren Effekt liefert.")
+                    .foregroundStyle(.secondary)
+
+                Text("Feste theoretische Verteilung: Mittelwert 127,5 und Standardabweichung 30,923. Keine Gewichte, kein EQI und keine Anpassung an den Holdout.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    viewModel.runNormalDistributionTest()
+                } label: {
+                    if viewModel.isNormalDistributionRunning {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("Normalverteilungstest starten", systemImage: "chart.line.uptrend.xyaxis")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isConfirmationRunning
+                )
+
+                Text(viewModel.normalDistributionStatus)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -280,7 +327,8 @@ struct OptimizerView: View {
                     viewModel.isBacktestRunning ||
                     viewModel.isLearning ||
                     viewModel.isHoldoutRunning ||
-                    viewModel.isRandomBenchmarkRunning
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning
                 )
 
                 Text(viewModel.confirmationStatus)
