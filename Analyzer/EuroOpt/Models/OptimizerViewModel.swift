@@ -11,8 +11,6 @@ import Combine
 @MainActor
 final class OptimizerViewModel: ObservableObject {
 
-    // MARK: - Published Properties
-
     @Published var reports: [OptimizerReport] = []
 
     @Published var isCalculating = false
@@ -21,12 +19,13 @@ final class OptimizerViewModel: ObservableObject {
     @Published var backtestProgress: Double = 0
     @Published var backtestStatus = "Bereit"
 
+    @Published var isHoldoutRunning = false
+    @Published var holdoutStatus = "Noch kein Holdout-Test gestartet"
+
     @Published var isLearning = false
     @Published var learningStatus = "Noch kein Lernlauf gestartet"
     @Published var learnedGoal = OptimizationGoalStore.shared.currentGoal
     @Published var learningResult: LearningResult?
-
-    // MARK: - Private Properties
 
     private let database = DrawDatabase()
     private let optimizer = OptimizerEngine()
@@ -34,11 +33,8 @@ final class OptimizerViewModel: ObservableObject {
     private let backtest = BacktestEngine()
     private let learningEngine = LearningEngine()
 
-    // MARK: - Learned Profile
-
     var learnedProfileText: String {
         let goal = learnedGoal
-
         return String(
             format: "F %.0f  |  P %.0f  |  G/U %.0f  |  H/N %.0f  |  S %.0f  |  A %.0f",
             goal.frequencyWeight,
@@ -50,13 +46,8 @@ final class OptimizerViewModel: ObservableObject {
         )
     }
 
-    // MARK: - Share Text
-
     var shareText: String {
-
-        guard !reports.isEmpty else {
-            return "Noch keine Empfehlungen vorhanden."
-        }
+        guard !reports.isEmpty else { return "Noch keine Empfehlungen vorhanden." }
 
         var text = """
 🎯 EuroOpt – Top \(reports.count) Empfehlungen
@@ -66,13 +57,9 @@ final class OptimizerViewModel: ObservableObject {
 ────────────────────
 
 """
-
         let medals = ["🥇", "🥈", "🥉"]
-
         for (index, report) in reports.enumerated() {
-
             let medal = index < medals.count ? medals[index] : "⭐"
-
             text += """
 \(medal) Empfehlung \(index + 1)
 
@@ -89,20 +76,12 @@ final class OptimizerViewModel: ObservableObject {
 ────────────────────
 
 """
-
         }
-
         text += "🍀 Viel Glück!"
         return text
     }
 
-    // MARK: - Empfehlungen
-
-    func calculateRecommendations(
-        candidateCount: Int,
-        recommendationCount: Int
-    ) {
-
+    func calculateRecommendations(candidateCount: Int, recommendationCount: Int) {
         print("================================")
         print("🎯 Gewählte Spielsysteme: \(candidateCount)")
         print("🏆 Gewünschte Empfehlungen: \(recommendationCount)")
@@ -110,19 +89,12 @@ final class OptimizerViewModel: ObservableObject {
         print("================================")
 
         isCalculating = true
-
         let start = Date()
         let draws = database.allDraws()
         let goal = OptimizationGoalStore.shared.currentGoal
 
         print("📊 Ziehungen geladen: \(draws.count)")
-
-        let candidates = generator.generate(
-            count: candidateCount,
-            draws: draws,
-            goal: goal
-        )
-
+        let candidates = generator.generate(count: candidateCount, draws: draws, goal: goal)
         print("🎲 Erzeugte Spielsysteme: \(candidates.count)")
 
         let bestTickets = optimizer.bestTickets(
@@ -133,31 +105,19 @@ final class OptimizerViewModel: ObservableObject {
         )
 
         print("🥇 Beste Spielsysteme: \(bestTickets.count)")
-
-        reports = bestTickets.map {
-            OptimizerReport(
-                ticket: $0.ticket,
-                eqi: EQI(value: $0.score)
-            )
-        }
-
-        let duration = Date().timeIntervalSince(start)
+        reports = bestTickets.map { OptimizerReport(ticket: $0.ticket, eqi: EQI(value: $0.score)) }
 
         print("--------------------------------")
-        print(String(format: "⏱ Gesamtzeit: %.2f Sekunden", duration))
+        print(String(format: "⏱ Gesamtzeit: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("--------------------------------")
-
         isCalculating = false
     }
 
-    // MARK: - 🧠 Gewichte lernen
-
     func startLearning() {
-        guard !isLearning, !isCalculating, !isBacktestRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning else { return }
 
         let draws = database.allDraws()
         let recommendationCount = AppSettings.recommendationCount
-
         isLearning = true
         learningStatus = "Walk-Forward-Lernen läuft..."
         learningResult = nil
@@ -168,7 +128,6 @@ final class OptimizerViewModel: ObservableObject {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-
             let result = self.learningEngine.learn(
                 draws: draws,
                 recommendationCount: recommendationCount,
@@ -185,21 +144,43 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func resetLearnedWeights() {
-        guard !isLearning, !isCalculating, !isBacktestRunning else { return }
-
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning else { return }
         OptimizationGoalStore.shared.reset()
         learnedGoal = OptimizationGoalStore.shared.currentGoal
         learningResult = nil
         learningStatus = "Standardprofil wiederhergestellt"
     }
 
-    // MARK: - Backtest
-
-    func runBacktest() {
-        guard !isLearning else { return }
+    func runHoldoutTest() {
+        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
 
         let draws = database.allDraws()
+        isHoldoutRunning = true
+        holdoutStatus = "Holdout-Test läuft – Validation und Holdout werden getrennt geprüft..."
 
+        print("===================================")
+        print("🧪 ALPHA 7.5 HOLDOUT-TEST")
+        print("===================================")
+        print("🔒 Holdout wird bis zur Gewichtswahl nicht verwendet.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            WeightSweepEngine().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+
+            DispatchQueue.main.async {
+                self.holdoutStatus = "Holdout-Test beendet – Ergebnis im Konsolen-Output"
+                self.isHoldoutRunning = false
+            }
+        }
+    }
+
+    func runBacktest() {
+        guard !isLearning, !isHoldoutRunning else { return }
+
+        let draws = database.allDraws()
         isBacktestRunning = true
         backtestProgress = 0
         backtestStatus = "Backtest läuft..."
@@ -212,7 +193,6 @@ final class OptimizerViewModel: ObservableObject {
                 candidateCount: AppSettings.backtestCandidateCount,
                 recommendationCount: AppSettings.recommendationCount
             ) { progress, current, total in
-
                 DispatchQueue.main.async {
                     self.backtestProgress = progress
                     self.backtestStatus = "\(current) von \(total) Ziehungen"
@@ -220,10 +200,7 @@ final class OptimizerViewModel: ObservableObject {
             }
 
             let componentBacktest = ComponentBacktestEngine()
-            componentBacktest.run(
-                draws: draws,
-                recommendationCount: AppSettings.recommendationCount
-            )
+            componentBacktest.run(draws: draws, recommendationCount: AppSettings.recommendationCount)
 
             DispatchQueue.main.async {
                 self.backtestProgress = 1.0
