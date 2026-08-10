@@ -22,6 +22,9 @@ final class OptimizerViewModel: ObservableObject {
     @Published var isHoldoutRunning = false
     @Published var holdoutStatus = "Noch kein Holdout-Test gestartet"
 
+    @Published var isConfirmationRunning = false
+    @Published var confirmationStatus = "Noch kein G/U-Bestätigungstest gestartet"
+
     @Published var isLearning = false
     @Published var learningStatus = "Noch kein Lernlauf gestartet"
     @Published var learnedGoal = OptimizationGoalStore.shared.currentGoal
@@ -114,7 +117,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func startLearning() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         let recommendationCount = AppSettings.recommendationCount
@@ -144,7 +147,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func resetLearnedWeights() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isConfirmationRunning else { return }
         OptimizationGoalStore.shared.reset()
         learnedGoal = OptimizationGoalStore.shared.currentGoal
         learningResult = nil
@@ -152,7 +155,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runHoldoutTest() {
-        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
+        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isHoldoutRunning = true
@@ -177,8 +180,34 @@ final class OptimizerViewModel: ObservableObject {
         }
     }
 
+    func runGUConfirmation() {
+        guard !isConfirmationRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+        isConfirmationRunning = true
+        confirmationStatus = "G/U-Bestätigung läuft – Gewichte sind fest auf 100 % G/U..."
+
+        print("===================================")
+        print("🧪 G/U-BESTÄTIGUNGS-TEST")
+        print("===================================")
+        print("🔒 Profil ist vor dem Test festgelegt: G/U 100 %")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            WeightSweepEngine().runGUConfirmation(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+
+            DispatchQueue.main.async {
+                self.confirmationStatus = "G/U-Bestätigung beendet – Ergebnis im Konsolen-Output"
+                self.isConfirmationRunning = false
+            }
+        }
+    }
+
     func runBacktest() {
-        guard !isLearning, !isHoldoutRunning else { return }
+        guard !isLearning, !isHoldoutRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isBacktestRunning = true
