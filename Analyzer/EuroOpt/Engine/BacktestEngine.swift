@@ -2,22 +2,19 @@
 //  BacktestEngine.swift
 //  EuroOpt
 //
-//  Alpha 6.6
+//  Alpha 7.4 - Performance
 //
 
 import Foundation
 
 final class BacktestEngine {
 
-    // MARK: - Public
-
     func run(
         draws: [EuroJackpotDraw],
         candidateCount: Int,
         recommendationCount: Int,
-        progress: @escaping (_ progress: Double,
-                             _ current: Int,
-                             _ total: Int) -> Void
+        goal: OptimizationGoal = OptimizationGoal(),
+        progress: @escaping (_ progress: Double, _ current: Int, _ total: Int) -> Void
     ) -> [BacktestResult] {
 
         guard draws.count > 100 else {
@@ -26,9 +23,7 @@ final class BacktestEngine {
         }
 
         let start = Date()
-
         let totalTests = draws.count - 100
-
         var results: [BacktestResult] = []
 
         print("===================================")
@@ -40,75 +35,55 @@ final class BacktestEngine {
         )
 
         for index in 100..<draws.count {
-
             let targetDraw = draws[index]
 
             let result = runSingleTest(
                 session: session,
                 targetDraw: targetDraw,
                 candidateCount: candidateCount,
-                recommendationCount: recommendationCount
+                recommendationCount: recommendationCount,
+                goal: goal
             )
 
             results.append(result)
-
             session.add(draw: targetDraw)
 
             let current = index - 99
-
-            progress(
-                Double(current) / Double(totalTests),
-                current,
-                totalTests
-            )
-
+            progress(Double(current) / Double(totalTests), current, totalTests)
         }
 
-        let statistics = BacktestStatistics.calculate(
-            from: results
-        )
-
-        let prizeClasses = PrizeClassCalculator.calculate(
-            from: results
-        )
-
+        let statistics = BacktestStatistics.calculate(from: results)
+        let prizeClasses = statistics.prizeClasses
         let duration = Date().timeIntervalSince(start)
 
         print("")
         print("===================================")
         print("📊 BACKTEST AUSWERTUNG")
         print("===================================")
-
         print("Getestete Ziehungen : \(statistics.totalTests)")
         print(String(format: "Ø Haupttreffer      : %.2f", statistics.averageHits))
         print(String(format: "Ø Eurotreffer       : %.2f", statistics.averageEuroHits))
         print(String(format: "Ø EQI               : %.2f", statistics.averageEQI))
-
         print("")
         print("Beste Haupttreffer  : \(statistics.bestHits)")
         print("Beste Eurotreffer   : \(statistics.bestEuroHits)")
-
         print("")
         print("-----------------------------------")
         print("Trefferklassen")
         print("-----------------------------------")
-
         print("0 Richtige : \(statistics.hit0)")
         print("1 Richtige : \(statistics.hit1)")
         print("2 Richtige : \(statistics.hit2)")
         print("3 Richtige : \(statistics.hit3)")
         print("4 Richtige : \(statistics.hit4)")
         print("5 Richtige : \(statistics.hit5)")
-
         print("")
         print("-----------------------------------")
         print("Eurotrefferklassen")
         print("-----------------------------------")
-
         print("0 Eurozahlen : \(statistics.euroHit0)")
         print("1 Eurozahl   : \(statistics.euroHit1)")
         print("2 Eurozahlen : \(statistics.euroHit2)")
-
         print("")
         print("-----------------------------------")
         print("Gewinnklassen")
@@ -123,48 +98,40 @@ final class BacktestEngine {
         print("===================================")
 
         return results
-
     }
-
-    // MARK: - Private
 
     private func runSingleTest(
         session: BacktestSession,
         targetDraw: EuroJackpotDraw,
         candidateCount: Int,
-        recommendationCount: Int
+        recommendationCount: Int,
+        goal: OptimizationGoal
     ) -> BacktestResult {
 
         let candidates = session.generator.generate(
             count: candidateCount,
             draws: session.trainingDraws,
+            goal: goal,
             hillClimbingIterations: AppSettings.backtestHillClimbingIterations
         )
 
         let best = session.optimizer.bestTickets(
             from: candidates,
             draws: session.trainingDraws,
+            goal: goal,
             limit: recommendationCount
         )
 
         var ticketResults: [BacktestTicketResult] = []
-
         var bestHits = 0
         var bestEuroHits = 0
-
         var totalHits = 0
         var totalEuroHits = 0
         var totalEQI = 0.0
 
         for (index, ticket) in best.enumerated() {
-
-            let hits = Set(ticket.ticket.numbers)
-                .intersection(targetDraw.numbers)
-                .count
-
-            let euroHits = Set(ticket.ticket.euroNumbers)
-                .intersection(targetDraw.euroNumbers)
-                .count
+            let hits = Set(ticket.ticket.numbers).intersection(targetDraw.numbers).count
+            let euroHits = Set(ticket.ticket.euroNumbers).intersection(targetDraw.euroNumbers).count
 
             ticketResults.append(
                 BacktestTicketResult(
@@ -177,7 +144,6 @@ final class BacktestEngine {
 
             bestHits = max(bestHits, hits)
             bestEuroHits = max(bestEuroHits, euroHits)
-
             totalHits += hits
             totalEuroHits += euroHits
             totalEQI += ticket.score
@@ -194,7 +160,5 @@ final class BacktestEngine {
             averageEQI: totalEQI / Double(recommendationCount),
             testedTickets: recommendationCount
         )
-
     }
-
 }
