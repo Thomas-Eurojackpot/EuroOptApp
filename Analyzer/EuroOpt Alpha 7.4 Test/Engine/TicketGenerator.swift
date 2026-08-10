@@ -2,16 +2,14 @@
 //  TicketGenerator.swift
 //  EuroOpt
 //
-//  Alpha 6.5
+//  Alpha 7.4 Test - Performance
 //
 
 import Foundation
 
 final class TicketGenerator {
 
-    private let scoreEngine = ScoreEngine()
     private let quickScore = QuickScore()
-    private let mutator = SmartMutator()
 
     func generate(
         count: Int,
@@ -40,7 +38,6 @@ final class TicketGenerator {
                     quick: quick
                 )
             )
-
         }
 
         print("✅ Spielsysteme erzeugt: \(candidates.count)")
@@ -66,7 +63,6 @@ final class TicketGenerator {
                 count / 20,
                 AppSettings.recommendationCount * 20
             )
-
         }
 
         let survivors = Array(candidates.prefix(survivorCount))
@@ -75,21 +71,34 @@ final class TicketGenerator {
 
         let start = Date()
 
+        // The historical analysis is immutable during hill climbing.
+        // Build it exactly once and share it between workers.
+        let scoreCache = ScoreCache(draws: draws)
+
         var result: [Ticket] = []
-        result.reserveCapacity(survivorCount)
+        result.reserveCapacity(survivors.count)
 
-        for survivor in survivors {
+        let resultLock = NSLock()
 
-            result.append(
+        // Each survivor is independent. GCD schedules these CPU-heavy jobs
+        // across the available Apple-silicon cores without creating our own
+        // thread pool. Each worker owns its mutable ScoreEngine and Mutator,
+        // while all workers share the immutable historical cache.
+        DispatchQueue.concurrentPerform(iterations: survivors.count) { index in
 
-                improve(
-                    ticket: survivor.ticket,
-                    draws: draws,
-                    iterations: hillClimbingIterations
-                )
+            let scoreEngine = ScoreEngine(cache: scoreCache)
+            let mutator = SmartMutator()
 
+            let improved = improve(
+                ticket: survivors[index].ticket,
+                scoreEngine: scoreEngine,
+                mutator: mutator,
+                iterations: hillClimbingIterations
             )
 
+            resultLock.lock()
+            result.append(improved)
+            resultLock.unlock()
         }
 
         let duration = Date().timeIntervalSince(start)
@@ -98,7 +107,6 @@ final class TicketGenerator {
         print(String(format: "⏱ Hill Climbing: %.2f Sekunden", duration))
 
         return result
-
     }
 
     // MARK: - Hill Climbing
@@ -106,15 +114,15 @@ final class TicketGenerator {
     @inline(__always)
     private func improve(
         ticket: Ticket,
-        draws: [EuroJackpotDraw],
+        scoreEngine: ScoreEngine,
+        mutator: SmartMutator,
         iterations: Int
     ) -> Ticket {
 
         var bestTicket = ticket
 
         var bestScore = scoreEngine.score(
-            ticket: ticket,
-            draws: draws
+            ticket: ticket
         )
 
         for _ in 0..<iterations {
@@ -128,21 +136,16 @@ final class TicketGenerator {
             }
 
             let score = scoreEngine.score(
-                ticket: candidate,
-                draws: draws
+                ticket: candidate
             )
 
             if score > bestScore {
-
                 bestScore = score
                 bestTicket = candidate
-
             }
-
         }
 
         return bestTicket
-
     }
 
     // MARK: - Zufallsticket
@@ -166,7 +169,6 @@ final class TicketGenerator {
             numbers: numbers.sorted(),
             euroNumbers: euroNumbers.sorted()
         )
-
     }
 
     // MARK: - Qualitätsprüfung
@@ -211,17 +213,13 @@ final class TicketGenerator {
                     }
 
                 } else {
-
                     consecutive = 1
-
                 }
 
                 if gap <= 2 {
                     smallGaps += 1
                 }
-
             }
-
         }
 
         guard even >= AppSettings.minimumEvenNumbers &&
@@ -244,8 +242,5 @@ final class TicketGenerator {
         }
 
         return true
-
     }
-
 }
-
