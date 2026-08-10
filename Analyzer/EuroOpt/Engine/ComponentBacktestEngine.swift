@@ -42,7 +42,18 @@ final class ComponentBacktestEngine {
             case sum
             case gap
 
-            var name: String {
+            var modelName: String {
+                switch self {
+                case .frequency: return "Nur Frequenz"
+                case .pair: return "Nur Paare"
+                case .evenOdd: return "Nur Gerade/Ungerade"
+                case .highLow: return "Nur Hoch/Niedrig"
+                case .sum: return "Nur Summe"
+                case .gap: return "Nur Abstände"
+                }
+            }
+
+            var reportName: String {
                 switch self {
                 case .frequency: return "Frequenz"
                 case .pair: return "Paare"
@@ -82,7 +93,7 @@ final class ComponentBacktestEngine {
             let randomBaseline = 0.50
 
             for component in Component.allCases {
-                let observed = averageHitsByComponent[component.name] ?? randomBaseline
+                let observed = averageHitsByComponent[component.modelName] ?? randomBaseline
                 let delta = max(-0.50, min(0.50, observed - randomBaseline))
                 let oldWeight = weights[component] ?? 1.0
                 weights[component] = oldWeight * exp(learningRate * delta)
@@ -93,7 +104,7 @@ final class ComponentBacktestEngine {
 
         func report() -> [(name: String, percent: Double)] {
             Component.allCases.map {
-                ($0.name, normalized($0) * 100.0)
+                ($0.reportName, normalized($0) * 100.0)
             }
         }
 
@@ -137,7 +148,6 @@ final class ComponentBacktestEngine {
         var adaptiveHits = 0
         var adaptiveEuroHits = 0
         var adaptiveTickets = 0
-        var adaptiveTests = 0
 
         // Every model receives exactly the same candidate pool for a given
         // target draw. Candidate generation is deliberately kept separate
@@ -188,7 +198,6 @@ final class ComponentBacktestEngine {
             adaptiveHits += adaptiveMainHits
             adaptiveEuroHits += adaptiveEuros
             adaptiveTickets += adaptiveBest.count
-            adaptiveTests += 1
 
             var observedExpertHits: [String: Double] = [:]
 
