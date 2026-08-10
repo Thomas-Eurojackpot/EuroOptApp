@@ -14,6 +14,9 @@ final class LearningEngine {
     private let mutator = WeightMutator()
 
     private struct Evaluation {
+        let totalHits: Int
+        let totalEuroHits: Int
+        let ticketCount: Int
         let averageHits: Double
         let averageEuroHits: Double
         let reward: Double
@@ -32,13 +35,8 @@ final class LearningEngine {
         }
 
         let start = Date()
-
-        // generations bleibt als API kompatibel erhalten.
-        // Im Walk-Forward-Modus bedeutet es die maximale Zahl
-        // von Mutationstests pro Ziehung.
         let mutationCount = max(1, min(generations, 8))
 
-        // Das Lernsystem muss deutlich schneller sein als der normale Optimizer.
         let learningCandidateCount = min(candidateCount, 120)
         let learningHillClimbingIterations = min(
             AppSettings.backtestHillClimbingIterations,
@@ -50,6 +48,7 @@ final class LearningEngine {
         var testedDraws = 0
         var totalHits = 0
         var totalEuroHits = 0
+        var totalTickets = 0
 
         var baselineReward = 0.0
         var adaptedReward = 0.0
@@ -61,7 +60,7 @@ final class LearningEngine {
         print("===================================")
         print("Getestete Ziehungen : \(draws.count - 50)")
         print("Kandidaten je Test  : \(learningCandidateCount)")
-        print("Empfehlungen        : \(recommendationCount)")
+        print("Empfehlungen        : \(\(recommendationCount))")
         print("Hill Climbing       : \(learningHillClimbingIterations)")
         print("🧠 Adaptives Lernen : WALK-FORWARD")
         print("===================================")
@@ -73,16 +72,17 @@ final class LearningEngine {
             let trainingDraws = Array(draws.prefix(index))
             let targetDraw = draws[index]
 
-            // -------------------------------------------------------------
-            // 1. VORHER: Empfehlungen ausschließlich aus der Vergangenheit
-            // -------------------------------------------------------------
+            // Der Kandidatenpool ist absichtlich unabhängig von der zu
+            // testenden Gewichtung. Nur die EQI-Bewertung darf sich ändern.
             let candidates = generator.generate(
                 count: learningCandidateCount,
                 draws: trainingDraws,
-                hillClimbingIterations: learningHillClimbingIterations,
-                goal: currentGoal
+                hillClimbingIterations: learningHillClimbingIterations
             )
 
+            // -------------------------------------------------------------
+            // 1. VORHER: echte Out-of-Sample-Empfehlung
+            // -------------------------------------------------------------
             let baselineTickets = optimizer.bestTickets(
                 from: candidates,
                 draws: trainingDraws,
@@ -95,10 +95,9 @@ final class LearningEngine {
                 target: targetDraw
             )
 
-            // Der Baseline-Wert ist der echte Out-of-Sample-Wert.
-            // Er wird VOR jeder Anpassung an die Zielziehung gemessen.
-            totalHits += Int((baseline.averageHits * Double(recommendationCount)).rounded())
-            totalEuroHits += Int((baseline.averageEuroHits * Double(recommendationCount)).rounded())
+            totalHits += baseline.totalHits
+            totalEuroHits += baseline.totalEuroHits
+            totalTickets += baseline.ticketCount
             baselineReward += baseline.reward
 
             var bestGoal = currentGoal
@@ -131,6 +130,7 @@ final class LearningEngine {
 
             }
 
+            // Gewichte werden erst NACH der Zielziehung aktualisiert.
             if bestEvaluation.reward > baseline.reward {
                 currentGoal = bestGoal
                 improvedSteps += 1
@@ -140,13 +140,21 @@ final class LearningEngine {
             testedDraws += 1
 
             if testedDraws == 1 || testedDraws % 25 == 0 || testedDraws == draws.count - 50 {
+                let avgHits = totalTickets > 0
+                    ? Double(totalHits) / Double(totalTickets)
+                    : 0
+
+                let avgEuroHits = totalTickets > 0
+                    ? Double(totalEuroHits) / Double(totalTickets)
+                    : 0
+
                 print(
                     String(
                         format: "🧠 Walk-Forward %3d/%3d | Ø %.3f / %.3f | Verbesserungen %d",
                         testedDraws,
                         draws.count - 50,
-                        Double(totalHits) / Double(testedDraws * recommendationCount),
-                        Double(totalEuroHits) / Double(testedDraws * recommendationCount),
+                        avgHits,
+                        avgEuroHits,
                         improvedSteps
                     )
                 )
@@ -159,12 +167,16 @@ final class LearningEngine {
         // ihrer eigenen Empfehlung verwendet.
         OptimizationGoalStore.shared.update(currentGoal)
 
-        let averageHits = Double(totalHits) / Double(testedDraws * recommendationCount)
-        let averageEuroHits = Double(totalEuroHits) / Double(testedDraws * recommendationCount)
+        let averageHits = totalTickets > 0
+            ? Double(totalHits) / Double(totalTickets)
+            : 0
+
+        let averageEuroHits = totalTickets > 0
+            ? Double(totalEuroHits) / Double(totalTickets)
+            : 0
 
         let randomMain = 0.5
         let randomEuro = 1.0 / 3.0
-
         let duration = Date().timeIntervalSince(start)
 
         print("")
@@ -192,9 +204,9 @@ final class LearningEngine {
         print(String(format: "Sum       : %.2f", currentGoal.sumWeight))
         print(String(format: "Gap       : %.2f", currentGoal.gapWeight))
         print("")
-        print(String(format: "Baseline Reward      : %.3f", baselineReward))
-        print(String(format: "Adapted Reward       : %.3f", adaptedReward))
-        print(String(format: "⏱ Walk-Forward       : %.2f Sekunden", duration))
+        print(String(format: "Baseline Reward : %.3f", baselineReward))
+        print(String(format: "Adapted Reward  : %.3f", adaptedReward))
+        print(String(format: "⏱ Walk-Forward  : %.2f Sekunden", duration))
         print("===================================")
 
         return currentGoal
@@ -208,6 +220,9 @@ final class LearningEngine {
 
         guard !tickets.isEmpty else {
             return Evaluation(
+                totalHits: 0,
+                totalEuroHits: 0,
+                ticketCount: 0,
                 averageHits: 0,
                 averageEuroHits: 0,
                 reward: 0
@@ -231,7 +246,6 @@ final class LearningEngine {
             totalHits += hits
             totalEuroHits += euroHits
 
-            // Lernsignal: Hauptzahlen dominieren, Eurozahlen bleiben relevant.
             reward += Double(hits) * 100.0
             reward += Double(euroHits) * 25.0
 
@@ -250,6 +264,9 @@ final class LearningEngine {
         let count = Double(tickets.count)
 
         return Evaluation(
+            totalHits: totalHits,
+            totalEuroHits: totalEuroHits,
+            ticketCount: tickets.count,
             averageHits: Double(totalHits) / count,
             averageEuroHits: Double(totalEuroHits) / count,
             reward: reward
