@@ -45,19 +45,26 @@ final class WeightSweepEngine {
 
         mutating func add(date: Date, ticketCount: Int) {
             guard ticketCount > 0 else { return }
-            let euroCount = date < euroFormatCutoverDate() ? 10 : 12
+            let euroCount = date < WeightSweepEngine.euroFormatCutoverDate() ? 10 : 12
 
             for mainHits in 0...5 {
-                let mainProbability = hypergeometricProbability(successPopulation: 5,
-                                                                failurePopulation: 45,
-                                                                draws: 5,
-                                                                successes: mainHits)
+                let mainProbability = WeightSweepEngine.hypergeometricProbability(
+                    successPopulation: 5,
+                    failurePopulation: 45,
+                    draws: 5,
+                    successes: mainHits
+                )
+
                 for euroHits in 0...2 {
-                    let euroProbability = hypergeometricProbability(successPopulation: 2,
-                                                                    failurePopulation: euroCount - 2,
-                                                                    draws: 2,
-                                                                    successes: euroHits)
-                    counts[mainHits * 3 + euroHits] += mainProbability * euroProbability * Double(ticketCount)
+                    let euroProbability = WeightSweepEngine.hypergeometricProbability(
+                        successPopulation: 2,
+                        failurePopulation: euroCount - 2,
+                        draws: 2,
+                        successes: euroHits
+                    )
+
+                    counts[mainHits * 3 + euroHits] +=
+                        mainProbability * euroProbability * Double(ticketCount)
                 }
             }
         }
@@ -169,9 +176,6 @@ final class WeightSweepEngine {
             let winnerScoreEngine = ScoreEngine(cache: cache, goal: winner.goal)
             let best = bestTickets(candidates: candidates, scoreEngine: winnerScoreEngine, limit: recommendationCount)
 
-            // Trefferklassen werden exakt auf denselben Tipps berechnet,
-            // die auch für Ø Haupttreffer / Ø Eurotreffer verwendet werden.
-            // Keine zweite Generierung, kein anderes Profil und kein anderes Holdout.
             for ticket in best {
                 let mainHits = Set(ticket.numbers).intersection(targetDraw.numbers).count
                 let euroHits = Set(ticket.euroNumbers).intersection(targetDraw.euroNumbers).count
@@ -343,17 +347,17 @@ final class WeightSweepEngine {
 
     private func expectedEuroHitsForTickets(for date: Date, ticketCount: Int) -> Double {
         guard ticketCount > 0 else { return 0 }
-        let expectedPerTicket = date < euroFormatCutoverDate() ? 0.400 : (1.0 / 3.0)
+        let expectedPerTicket = date < Self.euroFormatCutoverDate() ? 0.400 : (1.0 / 3.0)
         return expectedPerTicket * Double(ticketCount)
     }
 
-    private func euroFormatCutoverDate() -> Date {
+    private static func euroFormatCutoverDate() -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar.date(from: DateComponents(year: 2022, month: 3, day: 25))!
     }
 
-    private func hypergeometricProbability(successPopulation: Int, failurePopulation: Int, draws: Int, successes: Int) -> Double {
+    private static func hypergeometricProbability(successPopulation: Int, failurePopulation: Int, draws: Int, successes: Int) -> Double {
         guard successes >= 0,
               successes <= draws,
               successes <= successPopulation,
@@ -363,7 +367,7 @@ final class WeightSweepEngine {
             / combination(successPopulation + failurePopulation, draws)
     }
 
-    private func combination(_ n: Int, _ k: Int) -> Double {
+    private static func combination(_ n: Int, _ k: Int) -> Double {
         guard k >= 0, k <= n else { return 0 }
         if k == 0 || k == n { return 1 }
         let m = min(k, n - k)
