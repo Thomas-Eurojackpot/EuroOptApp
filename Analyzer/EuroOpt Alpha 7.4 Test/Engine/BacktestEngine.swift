@@ -27,9 +27,7 @@ final class BacktestEngine {
         }
 
         let start = Date()
-
         let maxTests = min(50, draws.count - 50)
-
         var results: [BacktestResult] = []
 
         print("===================================")
@@ -42,7 +40,6 @@ final class BacktestEngine {
         )
 
         for index in 50..<(50 + maxTests) {
-
             let targetDraw = draws[index]
 
             PerformanceTimer.shared.start("Single Backtest")
@@ -58,32 +55,24 @@ final class BacktestEngine {
             PerformanceTimer.shared.stop("Single Backtest")
 
             results.append(result)
-
             session.add(draw: targetDraw)
 
             let current = index - 49
-
             progress(
                 Double(current) / Double(maxTests),
                 current,
                 maxTests
             )
-
         }
 
-        let statistics = BacktestStatistics.calculate(
-            from: results
-        )
-
+        let statistics = BacktestStatistics.calculate(from: results)
         let prizeClasses = statistics.prizeClasses
-
         let duration = Date().timeIntervalSince(start)
 
         print("")
         print("===================================")
         print("📊 BACKTEST AUSWERTUNG")
         print("===================================")
-
         print("Getestete Ziehungen : \(statistics.totalTests)")
         print(String(format: "Ø Haupttreffer      : %.2f", statistics.averageHits))
         print(String(format: "Ø Eurotreffer       : %.2f", statistics.averageEuroHits))
@@ -116,7 +105,7 @@ final class BacktestEngine {
         for prizeClass in allClasses {
             let count = countsByClass[prizeClass] ?? 0
             let percentage = Double(count) / Double(totalTickets) * 100.0
-            print(String(format: "%-7s %6d    %6.2f%%", prizeClass, count, percentage))
+            print(String(format: "%-7@ %6d    %6.2f%%", prizeClass, count, percentage))
         }
 
         print("")
@@ -131,7 +120,7 @@ final class BacktestEngine {
         for prizeClass in allClasses {
             let count = bestClassCounts[prizeClass] ?? 0
             let percentage = Double(count) / Double(totalDraws) * 100.0
-            print(String(format: "%-7s %6d    %6.2f%%", prizeClass, count, percentage))
+            print(String(format: "%-7@ %6d    %6.2f%%", prizeClass, count, percentage))
         }
 
         // -------------------------------------------------------------
@@ -180,7 +169,6 @@ final class BacktestEngine {
         print("===================================")
 
         return results
-
     }
 
     // MARK: - Trefferklassen-Helfer
@@ -239,16 +227,13 @@ final class BacktestEngine {
         PerformanceTimer.shared.stop("Optimizer")
 
         var ticketResults: [BacktestTicketResult] = []
-
         var bestHits = 0
         var bestEuroHits = 0
-
         var totalHits = 0
         var totalEuroHits = 0
         var totalEQI = 0.0
 
         for (index, ticket) in best.enumerated() {
-
             let hits = Set(ticket.ticket.numbers)
                 .intersection(targetDraw.numbers)
                 .count
@@ -268,7 +253,6 @@ final class BacktestEngine {
 
             bestHits = max(bestHits, hits)
             bestEuroHits = max(bestEuroHits, euroHits)
-
             totalHits += hits
             totalEuroHits += euroHits
             totalEQI += ticket.score
@@ -285,7 +269,5 @@ final class BacktestEngine {
             averageEQI: totalEQI / Double(recommendationCount),
             testedTickets: recommendationCount
         )
-
     }
-
 }
