@@ -16,8 +16,13 @@ final class TicketGenerator {
     func generate(
         count: Int,
         draws: [EuroJackpotDraw],
-        hillClimbingIterations: Int = AppSettings.hillClimbingIterations
+        hillClimbingIterations: Int = AppSettings.hillClimbingIterations,
+        goal: OptimizationGoal? = nil
     ) -> [Ticket] {
+
+        if let goal {
+            scoreEngine.updateGoal(goal)
+        }
 
         print("🎲 Erzeuge \(count) Spielsysteme...")
 
@@ -70,8 +75,6 @@ final class TicketGenerator {
         }
 
         let survivors = Array(candidates.prefix(survivorCount))
-
-        print("🎯 Nach QuickScore übrig: \(survivors.count) Spielsysteme")
 
         let start = Date()
 

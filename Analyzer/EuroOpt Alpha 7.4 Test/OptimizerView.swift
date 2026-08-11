@@ -2,7 +2,7 @@
 //  OptimizerView.swift
 //  EuroOpt
 //
-//  Alpha 7.0
+//  Alpha 7.5
 //
 
 import SwiftUI
@@ -46,6 +46,22 @@ struct OptimizerView: View {
 
                     }
 
+                    if viewModel.isHoldoutRunning {
+
+                        GroupBox("🧪 Holdout-Test") {
+
+                            HStack {
+
+                                ProgressView()
+
+                                Text(viewModel.holdoutStatus)
+
+                            }
+
+                        }
+
+                    }
+
                     if viewModel.isBacktestRunning {
 
                         GroupBox("🧪 Backtest") {
@@ -63,6 +79,12 @@ struct OptimizerView: View {
                             }
 
                         }
+
+                    }
+
+                    if let holdout = viewModel.lastHoldoutResult {
+
+                        holdoutDashboard(holdout)
 
                     }
 
@@ -191,7 +213,7 @@ private extension OptimizerView {
 
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isCalculating)
+            .disabled(viewModel.isCalculating || viewModel.isLearning || viewModel.isHoldoutRunning)
 
             Button {
 
@@ -207,7 +229,11 @@ private extension OptimizerView {
 
             }
             .buttonStyle(.bordered)
-            .disabled(viewModel.isBacktestRunning || viewModel.isLearning)
+            .disabled(
+                viewModel.isBacktestRunning ||
+                viewModel.isLearning ||
+                viewModel.isHoldoutRunning
+            )
 
             Button {
 
@@ -223,7 +249,99 @@ private extension OptimizerView {
 
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isLearning || viewModel.isBacktestRunning)
+            .disabled(
+                viewModel.isLearning ||
+                viewModel.isBacktestRunning ||
+                viewModel.isHoldoutRunning
+            )
+
+            Button {
+
+                viewModel.runHoldout()
+
+            } label: {
+
+                Label(
+                    "🧪 Holdout-Test starten",
+                    systemImage: "checkmark.shield"
+                )
+                .frame(maxWidth: .infinity)
+
+            }
+            .buttonStyle(.bordered)
+            .disabled(
+                viewModel.isHoldoutRunning ||
+                viewModel.isLearning ||
+                viewModel.isBacktestRunning
+            )
+
+        }
+
+    }
+
+    func holdoutDashboard(
+        _ result: HoldoutResult
+    ) -> some View {
+
+        GroupBox("🧪 Alpha 7.5 Holdout-Ergebnis") {
+
+            VStack(alignment: .leading, spacing: 10) {
+
+                Text("Training: \(result.trainingDrawCount) Ziehungen")
+
+                Text("Holdout: \(result.holdoutDrawCount) Ziehungen")
+
+                Divider()
+
+                Text(
+                    String(
+                        format: "Ø Haupttreffer: %.3f  |  Zufall: %.3f  |  Δ: %+.3f",
+                        result.averageHits,
+                        result.randomMain,
+                        result.averageHits - result.randomMain
+                    )
+                )
+
+                Text(
+                    String(
+                        format: "Ø Eurotreffer: %.3f  |  Zufall: %.3f  |  Δ: %+.3f",
+                        result.averageEuroHits,
+                        result.randomEuro,
+                        result.averageEuroHits - result.randomEuro
+                    )
+                )
+
+                Divider()
+
+                Text("Eingefrorene Gewichte")
+                    .font(.headline)
+
+                Text(
+                    String(
+                        format: "F %.0f | P %.0f | G/U %.0f | H/N %.0f | S %.0f | A %.0f",
+                        result.learnedGoal.frequencyWeight,
+                        result.learnedGoal.pairWeight,
+                        result.learnedGoal.evenOddWeight,
+                        result.learnedGoal.highLowWeight,
+                        result.learnedGoal.sumWeight,
+                        result.learnedGoal.gapWeight
+                    )
+                    .replacingOccurrences(of: ".", with: "")
+                )
+
+                Text(
+                    String(format: "Laufzeit: %.2f Sekunden", result.duration)
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Text(
+                    "Das Profil wurde nur auf dem Training gelernt und im Holdout nicht verändert."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            }
 
         }
 
@@ -263,6 +381,8 @@ private extension OptimizerView {
 Die Vorschläge werden anhand der aktuellen Bewertungsgewichte berechnet.
 
 Über „🧠 Gewichte lernen“ kann EuroOpt die Bewertungsgewichte anhand historischer Backtests optimieren.
+
+Der „🧪 Holdout-Test“ lernt zunächst ausschließlich auf den ersten 80 % der Ziehungen. Die letzten 20 % werden anschließend mit dem eingefrorenen Profil getestet.
 """)
 
         }

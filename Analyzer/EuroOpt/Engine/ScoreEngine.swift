@@ -2,44 +2,156 @@
 //  ScoreEngine.swift
 //  EuroOpt
 //
-//  Alpha 7.0
+//  Alpha 7.4 - Performance
 //
 
 import Foundation
 
-final class ScoreEngine {
+// MARK: - Shared immutable analysis cache
 
-    // MARK: - Properties
+/// Builds historical statistics once and reuses them for every ticket score.
+/// Ticket scoring then performs only small lookups against the cache.
+final class ScoreCache {
 
-    private let frequencyScore = FrequencyScore()
-    private let pairScore = PairScore()
-    private let evenOddScore = EvenOddScore()
-    private let highLowScore = HighLowScore()
-    private let sumScore = SumScore()
-    private let gapScore = GapScore()
+    let drawCount: Int
 
-    private var goal: OptimizationGoal
+    let frequencies: [Int: Int]
+    let minimumFrequency: Int
+    let maximumFrequency: Int
 
-    private static var diagnosticsPrinted = false
+    let pairFrequencies: [Set<Int>: Int]
+    let maximumPairFrequency: Int
 
-    // MARK: - Initializer
+    let evenOddDistribution: [String: Int]
+    let maximumEvenOddFrequency: Int
 
-    init(
-        goal: OptimizationGoal = OptimizationGoal()
-    ) {
+    let highLowDistribution: [String: Int]
+    let maximumHighLowFrequency: Int
 
-        self.goal = goal
+    let sumDistribution: [Int: Int]
+    let maximumSumFrequency: Int
 
+    let gapDistribution: [String: Int]
+    let maximumGapFrequency: Int
+
+    private let firstSignature: DrawSignature?
+    private let lastSignature: DrawSignature?
+
+    init(draws: [EuroJackpotDraw]) {
+
+        drawCount = draws.count
+
+        var frequencyCounter: [Int: Int] = [:]
+        for number in 1...50 {
+            frequencyCounter[number] = 0
+        }
+
+        var pairCounter: [Set<Int>: Int] = [:]
+        var evenOddCounter: [String: Int] = [:]
+        var highLowCounter: [String: Int] = [:]
+        var sumCounter: [Int: Int] = [:]
+        var gapCounter: [String: Int] = [:]
+
+        for draw in draws {
+
+            for number in draw.numbers {
+                frequencyCounter[number, default: 0] += 1
+            }
+
+            let numbers = draw.numbers.sorted()
+
+            if numbers.count >= 2 {
+                for i in 0..<(numbers.count - 1) {
+                    for j in (i + 1)..<numbers.count {
+                        let pair: Set<Int> = [numbers[i], numbers[j]]
+                        pairCounter[pair, default: 0] += 1
+                    }
+                }
+            }
+
+            let even = numbers.filter { $0.isMultiple(of: 2) }.count
+            let odd = numbers.count - even
+            evenOddCounter["\(even):\(odd)", default: 0] += 1
+
+            let low = numbers.filter { $0 <= 25 }.count
+            let high = numbers.count - low
+            highLowCounter["\(low):\(high)", default: 0] += 1
+
+            let sum = numbers.reduce(0, +)
+            sumCounter[sum, default: 0] += 1
+
+            let gaps = zip(numbers, numbers.dropFirst())
+                .map { $1 - $0 }
+                .map(String.init)
+                .joined(separator: "-")
+            gapCounter[gaps, default: 0] += 1
+        }
+
+        frequencies = frequencyCounter
+        minimumFrequency = frequencyCounter.values.min() ?? 0
+        maximumFrequency = frequencyCounter.values.max() ?? 0
+
+        pairFrequencies = pairCounter
+        maximumPairFrequency = pairCounter.values.max() ?? 0
+
+        evenOddDistribution = evenOddCounter
+        maximumEvenOddFrequency = evenOddCounter.values.max() ?? 0
+
+        highLowDistribution = highLowCounter
+        maximumHighLowFrequency = highLowCounter.values.max() ?? 0
+
+        sumDistribution = sumCounter
+        maximumSumFrequency = sumCounter.values.max() ?? 0
+
+        gapDistribution = gapCounter
+        maximumGapFrequency = gapCounter.values.max() ?? 0
+
+        firstSignature = draws.first.map(DrawSignature.init)
+        lastSignature = draws.last.map(DrawSignature.init)
     }
 
-    // MARK: - Public
+    func matches(_ draws: [EuroJackpotDraw]) -> Bool {
 
-    func updateGoal(
-        _ goal: OptimizationGoal
-    ) {
+        guard draws.count == drawCount else {
+            return false
+        }
 
+        return draws.first.map(DrawSignature.init) == firstSignature &&
+               draws.last.map(DrawSignature.init) == lastSignature
+    }
+}
+
+private struct DrawSignature: Equatable {
+    let date: Date
+    let numbers: [Int]
+    let euroNumbers: [Int]
+
+    init(draw: EuroJackpotDraw) {
+        date = draw.date
+        numbers = draw.numbers
+        euroNumbers = draw.euroNumbers
+    }
+}
+
+// MARK: - Score engine
+
+final class ScoreEngine {
+
+    private var cache: ScoreCache
+    private var goal: OptimizationGoal
+
+    init(goal: OptimizationGoal = OptimizationGoal()) {
         self.goal = goal
+        self.cache = ScoreCache(draws: [])
+    }
 
+    init(cache: ScoreCache, goal: OptimizationGoal = OptimizationGoal()) {
+        self.goal = goal
+        self.cache = cache
+    }
+
+    func updateGoal(_ goal: OptimizationGoal) {
+        self.goal = goal
     }
 
     @inline(__always)
@@ -47,6 +159,18 @@ final class ScoreEngine {
         ticket: Ticket,
         draws: [EuroJackpotDraw]
     ) -> Double {
+
+        if !cache.matches(draws) {
+            cache = ScoreCache(draws: draws)
+        }
+
+        return score(ticket: ticket)
+    }
+
+    /// Scores against the already prepared cache. Each parallel worker should
+    /// use its own ScoreEngine instance with the shared immutable cache.
+    @inline(__always)
+    func score(ticket: Ticket) -> Double {
 
         let totalWeight =
             goal.frequencyWeight +
@@ -61,104 +185,94 @@ final class ScoreEngine {
         }
 
         let numbers = ticket.numbers
-        let euroNumbers = ticket.euroNumbers
-
         var weightedScore = 0.0
 
-        let diagnose = !Self.diagnosticsPrinted
+        // Frequency
+        if cache.maximumFrequency > cache.minimumFrequency {
+            var totalFrequency = 0
+            for number in numbers {
+                totalFrequency += cache.frequencies[number] ?? cache.minimumFrequency
+            }
 
-        var t0 = CFAbsoluteTimeGetCurrent()
+            let minimumScore = cache.minimumFrequency * numbers.count
+            let maximumScore = cache.maximumFrequency * numbers.count
 
-        weightedScore +=
-            frequencyScore.calculate(
-                numbers: numbers,
-                euroNumbers: euroNumbers,
-                draws: draws
-            ) * goal.frequencyWeight
-
-        if diagnose {
-            print(String(format: "⏱ Frequency : %.5f s",
-                         CFAbsoluteTimeGetCurrent() - t0))
+            weightedScore +=
+                Double(totalFrequency - minimumScore)
+                / Double(maximumScore - minimumScore)
+                * 100.0
+                * goal.frequencyWeight
         }
 
-        t0 = CFAbsoluteTimeGetCurrent()
+        // Pairs
+        if cache.maximumPairFrequency > 0 && numbers.count >= 2 {
+            let sortedNumbers = numbers.sorted()
+            var totalFrequency = 0
 
-        weightedScore +=
-            pairScore.calculate(
-                numbers: numbers,
-                euroNumbers: euroNumbers,
-                draws: draws
-            ) * goal.pairWeight
+            for i in 0..<(sortedNumbers.count - 1) {
+                let first = sortedNumbers[i]
+                for j in (i + 1)..<sortedNumbers.count {
+                    let pair: Set<Int> = [first, sortedNumbers[j]]
+                    totalFrequency += cache.pairFrequencies[pair] ?? 0
+                }
+            }
 
-        if diagnose {
-            print(String(format: "⏱ Pair      : %.5f s",
-                         CFAbsoluteTimeGetCurrent() - t0))
+            weightedScore +=
+                (Double(totalFrequency) / 10.0)
+                / Double(cache.maximumPairFrequency)
+                * 100.0
+                * goal.pairWeight
         }
 
-        t0 = CFAbsoluteTimeGetCurrent()
+        // Even / Odd
+        if cache.maximumEvenOddFrequency > 0 {
+            let even = numbers.filter { $0.isMultiple(of: 2) }.count
+            let odd = numbers.count - even
+            let count = cache.evenOddDistribution["\(even):\(odd)"] ?? 0
 
-        weightedScore +=
-            evenOddScore.calculate(
-                numbers: numbers,
-                euroNumbers: euroNumbers,
-                draws: draws
-            ) * goal.evenOddWeight
-
-        if diagnose {
-            print(String(format: "⏱ Even/Odd  : %.5f s",
-                         CFAbsoluteTimeGetCurrent() - t0))
+            weightedScore +=
+                Double(count) / Double(cache.maximumEvenOddFrequency)
+                * 100.0
+                * goal.evenOddWeight
         }
 
-        t0 = CFAbsoluteTimeGetCurrent()
+        // High / Low
+        if cache.maximumHighLowFrequency > 0 {
+            let low = numbers.filter { $0 <= 25 }.count
+            let high = numbers.count - low
+            let count = cache.highLowDistribution["\(low):\(high)"] ?? 0
 
-        weightedScore +=
-            highLowScore.calculate(
-                numbers: numbers,
-                euroNumbers: euroNumbers,
-                draws: draws
-            ) * goal.highLowWeight
-
-        if diagnose {
-            print(String(format: "⏱ High/Low  : %.5f s",
-                         CFAbsoluteTimeGetCurrent() - t0))
+            weightedScore +=
+                Double(count) / Double(cache.maximumHighLowFrequency)
+                * 100.0
+                * goal.highLowWeight
         }
 
-        t0 = CFAbsoluteTimeGetCurrent()
+        // Sum
+        if cache.maximumSumFrequency > 0 {
+            let sum = numbers.reduce(0, +)
+            let count = cache.sumDistribution[sum] ?? 0
 
-        weightedScore +=
-            sumScore.calculate(
-                numbers: numbers,
-                euroNumbers: euroNumbers,
-                draws: draws
-            ) * goal.sumWeight
-
-        if diagnose {
-            print(String(format: "⏱ Sum       : %.5f s",
-                         CFAbsoluteTimeGetCurrent() - t0))
+            weightedScore +=
+                Double(count) / Double(cache.maximumSumFrequency)
+                * 100.0
+                * goal.sumWeight
         }
 
-        t0 = CFAbsoluteTimeGetCurrent()
+        // Gap pattern
+        if cache.maximumGapFrequency > 0 && numbers.count >= 2 {
+            let sortedNumbers = numbers.sorted()
+            let key = zip(sortedNumbers, sortedNumbers.dropFirst())
+                .map { String($1 - $0) }
+                .joined(separator: "-")
+            let count = cache.gapDistribution[key] ?? 0
 
-        weightedScore +=
-            gapScore.calculate(
-                numbers: numbers,
-                euroNumbers: euroNumbers,
-                draws: draws
-            ) * goal.gapWeight
-
-        if diagnose {
-
-            print(String(format: "⏱ Gap       : %.5f s",
-                         CFAbsoluteTimeGetCurrent() - t0))
-
-            print("--------------------------------")
-
-            Self.diagnosticsPrinted = true
-
+            weightedScore +=
+                Double(count) / Double(cache.maximumGapFrequency)
+                * 100.0
+                * goal.gapWeight
         }
 
         return weightedScore / totalWeight
-
     }
-
 }
