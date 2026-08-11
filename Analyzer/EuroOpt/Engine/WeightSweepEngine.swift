@@ -40,6 +40,37 @@ final class WeightSweepEngine {
         }
     }
 
+    private struct ExpectedHitClassAggregate {
+        var counts = Array(repeating: 0.0, count: 18)
+
+        mutating func add(date: Date, ticketCount: Int) {
+            guard ticketCount > 0 else { return }
+            let euroCount = date < euroFormatCutoverDate() ? 10 : 12
+
+            for mainHits in 0...5 {
+                let mainProbability = hypergeometricProbability(successPopulation: 5,
+                                                                failurePopulation: 45,
+                                                                draws: 5,
+                                                                successes: mainHits)
+                for euroHits in 0...2 {
+                    let euroProbability = hypergeometricProbability(successPopulation: 2,
+                                                                    failurePopulation: euroCount - 2,
+                                                                    draws: 2,
+                                                                    successes: euroHits)
+                    counts[mainHits * 3 + euroHits] += mainProbability * euroProbability * Double(ticketCount)
+                }
+            }
+        }
+
+        func expectedCount(mainHits: Int, euroHits: Int) -> Double {
+            counts[mainHits * 3 + euroHits]
+        }
+
+        var total: Double {
+            counts.reduce(0, +)
+        }
+    }
+
     private let profileCount = 32
     private let candidateCountMinimum = 301
 
@@ -128,6 +159,7 @@ final class WeightSweepEngine {
         var holdoutTickets = 0
         var holdoutExpectedEuroHits = 0.0
         var holdoutHitClasses = HitClassAggregate()
+        var holdoutExpectedHitClasses = ExpectedHitClassAggregate()
 
         for index in holdoutStart..<draws.count {
             let trainingDraws = Array(draws.prefix(index))
@@ -150,6 +182,7 @@ final class WeightSweepEngine {
 
             holdoutTickets += best.count
             holdoutExpectedEuroHits += expectedEuroHitsForTickets(for: targetDraw.date, ticketCount: best.count)
+            holdoutExpectedHitClasses.add(date: targetDraw.date, ticketCount: best.count)
 
             let current = index - holdoutStart + 1
             if current.isMultiple(of: 50) {
@@ -176,11 +209,12 @@ final class WeightSweepEngine {
         print(String(format: "Kombinierter Δ      : %+.3f", (holdoutAverage - randomMain) + (holdoutEuroAverage - holdoutEuroExpected)))
         print("")
 
-        printHitClassEvaluation(holdoutHitClasses, totalTickets: holdoutTickets)
+        printHitClassEvaluation(holdoutHitClasses, expected: holdoutExpectedHitClasses, totalTickets: holdoutTickets)
 
         print("Interpretation: Das Profil wurde ausschließlich auf der Validation-Hälfte gewählt.")
         print("Der Holdout wurde weder zur Gewichtswahl noch zur Kombinationsermittlung verwendet.")
         print("Die Trefferklassen stammen exakt aus denselben Holdout-Tipps wie Ø Haupttreffer und Ø Eurotreffer.")
+        print("Die theoretische Zufallsverteilung ist analytisch hypergeometrisch berechnet und berücksichtigt 10 bzw. 12 Eurozahlen je Ziehung.")
         print("Die Euro-Basis berücksichtigt den Wechsel von 10 auf 12 Eurozahlen ab 25.03.2022.")
         print("")
         print(String(format: "⏱ Weight-Sweep: %.2f Sekunden", Date().timeIntervalSince(start)))
@@ -319,17 +353,44 @@ final class WeightSweepEngine {
         return calendar.date(from: DateComponents(year: 2022, month: 3, day: 25))!
     }
 
-    private func printHitClassEvaluation(_ aggregate: HitClassAggregate, totalTickets: Int) {
+    private func hypergeometricProbability(successPopulation: Int, failurePopulation: Int, draws: Int, successes: Int) -> Double {
+        guard successes >= 0,
+              successes <= draws,
+              successes <= successPopulation,
+              draws - successes <= failurePopulation else { return 0 }
+        return combination(successPopulation, successes)
+            * combination(failurePopulation, draws - successes)
+            / combination(successPopulation + failurePopulation, draws)
+    }
+
+    private func combination(_ n: Int, _ k: Int) -> Double {
+        guard k >= 0, k <= n else { return 0 }
+        if k == 0 || k == n { return 1 }
+        let m = min(k, n - k)
+        var result = 1.0
+        for i in 1...m {
+            result *= Double(n - m + i) / Double(i)
+        }
+        return result
+    }
+
+    private func printHitClassEvaluation(_ aggregate: HitClassAggregate,
+                                          expected: ExpectedHitClassAggregate,
+                                          totalTickets: Int) {
         print("-----------------------------------")
-        print("TREFFERKLASSEN – EXAKT DERSELBE HOLDOUT")
+        print("TREFFERKLASSEN – HOLDOUT vs. THEORETISCHER ZUFALL")
         print("-----------------------------------")
-        print("Klasse     Anzahl     Anteil")
+        print("Klasse     Ist       Ist %      Zufall     Zufall %      Δ %-Pkt.")
 
         for mainHits in stride(from: 5, through: 0, by: -1) {
             for euroHits in stride(from: 2, through: 0, by: -1) {
-                let count = aggregate.count(mainHits: mainHits, euroHits: euroHits)
-                let share = totalTickets > 0 ? Double(count) / Double(totalTickets) * 100.0 : 0
-                print(String(format: "%d + %d     %6d     %6.2f %%", mainHits, euroHits, count, share))
+                let observed = aggregate.count(mainHits: mainHits, euroHits: euroHits)
+                let observedShare = totalTickets > 0 ? Double(observed) / Double(totalTickets) * 100.0 : 0
+                let expectedCount = expected.expectedCount(mainHits: mainHits, euroHits: euroHits)
+                let expectedShare = totalTickets > 0 ? expectedCount / Double(totalTickets) * 100.0 : 0
+                let deltaShare = observedShare - expectedShare
+                print(String(format: "%d + %d     %6d    %7.2f %%   %8.2f    %8.2f %%    %+7.2f",
+                             mainHits, euroHits, observed, observedShare, expectedCount, expectedShare, deltaShare))
             }
         }
 
@@ -341,12 +402,17 @@ final class WeightSweepEngine {
         let zeroTickets = aggregate.count(mainHits: 0, euroHits: 0)
         let winningShare = totalTickets > 0 ? Double(winningTickets) / Double(totalTickets) * 100.0 : 0
         let zeroShare = totalTickets > 0 ? Double(zeroTickets) / Double(totalTickets) * 100.0 : 0
+        let expectedWinning = expected.total - expected.expectedCount(mainHits: 0, euroHits: 0)
+        let expectedWinningShare = totalTickets > 0 ? expectedWinning / Double(totalTickets) * 100.0 : 0
+        let expectedZeroShare = totalTickets > 0 ? expected.expectedCount(mainHits: 0, euroHits: 0) / Double(totalTickets) * 100.0 : 0
 
         print("")
         print(String(format: "Gesamttipps         : %d", totalTickets))
-        print(String(format: "Mind. 1 Treffer     : %d (%.2f %%)", winningTickets, winningShare))
-        print(String(format: "0 + 0               : %d (%.2f %%)", zeroTickets, zeroShare))
-        print(String(format: "Klassen-Summe       : %d", aggregate.total))
+        print(String(format: "Mind. 1 Treffer     : %d (%.2f %%) | Zufall %.2f %% | Δ %+0.2f %-Pkt.",
+                     winningTickets, winningShare, expectedWinningShare, winningShare - expectedWinningShare))
+        print(String(format: "0 + 0               : %d (%.2f %%) | Zufall %.2f %% | Δ %+0.2f %-Pkt.",
+                     zeroTickets, zeroShare, expectedZeroShare, zeroShare - expectedZeroShare))
+        print(String(format: "Klassen-Summe       : %d | Zufall %.2f", aggregate.total, expected.total))
         print("")
     }
 
