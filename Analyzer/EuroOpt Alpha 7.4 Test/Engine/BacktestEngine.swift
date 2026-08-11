@@ -93,19 +93,51 @@ final class BacktestEngine {
         print("Beste Haupttreffer  : \(statistics.bestHits)")
         print("Beste Eurotreffer   : \(statistics.bestEuroHits)")
 
+        // -------------------------------------------------------------
+        // Trefferklassen
+        // -------------------------------------------------------------
+        // Zwei Ansichten bleiben bewusst getrennt:
+        // 1. Alle getesteten Empfehlungen: jede Empfehlung ist eine Beobachtung.
+        // 2. Beste Trefferklasse je Ziehung: genau eine Beobachtung pro Holdout-Ziehung.
+        // Dadurch verändern wir weder Alpha 7.5 noch die Gewichte oder die
+        // bisherige Trefferberechnung.
         print("")
         print("-----------------------------------")
-        print("Gewinnklassen")
+        print("Trefferklassen – alle getesteten Empfehlungen")
         print("-----------------------------------")
+        print("Klasse   Anzahl    Anteil")
 
-        for prize in prizeClasses {
-            print("\(prize.prizeClass) : \(prize.count)")
+        let allClasses = Self.allPrizeClasses
+        let totalTickets = max(1, results.reduce(0) { $0 + $1.ticketResults.count })
+        let countsByClass = Dictionary(
+            uniqueKeysWithValues: prizeClasses.map { ($0.prizeClass, $0.count) }
+        )
+
+        for prizeClass in allClasses {
+            let count = countsByClass[prizeClass] ?? 0
+            let percentage = Double(count) / Double(totalTickets) * 100.0
+            print(String(format: "%-7s %6d    %6.2f%%", prizeClass, count, percentage))
+        }
+
+        print("")
+        print("-----------------------------------")
+        print("Trefferklassen – beste Empfehlung je Ziehung")
+        print("-----------------------------------")
+        print("Klasse   Anzahl    Anteil")
+
+        let bestClassCounts = Self.bestPrizeClassCounts(from: results)
+        let totalDraws = max(1, results.count)
+
+        for prizeClass in allClasses {
+            let count = bestClassCounts[prizeClass] ?? 0
+            let percentage = Double(count) / Double(totalDraws) * 100.0
+            print(String(format: "%-7s %6d    %6.2f%%", prizeClass, count, percentage))
         }
 
         // -------------------------------------------------------------
         // Unabhängiger Quicktipp-Kontrolltest
         // -------------------------------------------------------------
-        // Exakt derselbe Holdout wie im Backtest: dieselben 50 Zielziehungen.
+        // Exakt derselbe Holdout wie im Backtest: dieselben Zielziehungen.
         // Die acht real gespielten Quicktipp-Felder werden weder optimiert
         // noch aus historischen Treffern ausgewählt.
         let holdout = Array(draws[50..<(50 + maxTests)])
@@ -149,6 +181,30 @@ final class BacktestEngine {
 
         return results
 
+    }
+
+    // MARK: - Trefferklassen-Helfer
+
+    private static let allPrizeClasses: [String] = {
+        var classes: [String] = []
+        for main in 0...5 {
+            for euro in 0...2 {
+                classes.append("\(main)+\(euro)")
+            }
+        }
+        return classes
+    }()
+
+    private static func bestPrizeClassCounts(
+        from results: [BacktestResult]
+    ) -> [String: Int] {
+        var counts: [String: Int] = [:]
+
+        for result in results {
+            counts[result.prizeClass, default: 0] += 1
+        }
+
+        return counts
     }
 
     // MARK: - Private
