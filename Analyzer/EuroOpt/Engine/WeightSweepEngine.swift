@@ -467,4 +467,32 @@ final class WeightSweepEngine {
                profile.weights[0], profile.weights[1], profile.weights[2], profile.weights[3],
                profile.weights[4], profile.weights[5])
     }
+
+    // MARK: - Parity bridge
+    // Internal test-only bridge. The normal Alpha 7.5 run does not call this.
+    func parityProfileScores(candidates: [Ticket], draws: [EuroJackpotDraw], recommendationCount: Int) -> [WeightSweepParityScore] {
+        guard !candidates.isEmpty, draws.count > 0 else { return [] }
+
+        let profiles = makeProfiles()
+        let cache = ScoreCache(draws: draws)
+        let scoreEngines = profiles.map { ScoreEngine(cache: cache, goal: $0.goal) }
+        var results: [WeightSweepParityScore] = []
+        results.reserveCapacity(profiles.count)
+
+        for index in profiles.indices {
+            let best = bestTickets(candidates: candidates, scoreEngine: scoreEngines[index], limit: recommendationCount)
+            results.append(
+                WeightSweepParityScore(
+                    profileID: profiles[index].id,
+                    weights: profiles[index].weights,
+                    ticketCount: best.count,
+                    score: best.reduce(0.0) { partial, ticket in
+                        partial + scoreEngines[index].score(ticket: ticket)
+                    }
+                )
+            )
+        }
+
+        return results
+    }
 }
