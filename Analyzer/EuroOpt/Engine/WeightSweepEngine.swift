@@ -411,12 +411,10 @@ final class WeightSweepEngine {
         let expectedZeroShare = totalTickets > 0 ? expected.expectedCount(mainHits: 0, euroHits: 0) / Double(totalTickets) * 100.0 : 0
 
         print("")
-        print(String(format: "Gesamttipps         : %lld", Int64(totalTickets)))
-        print(String(format: "Mind. 1 Treffer     : %lld (%.2f %%) | Zufall %.2f %% | Δ %+0.2f %-Pkt.",
-                     Int64(winningTickets), winningShare, expectedWinningShare, winningShare - expectedWinningShare))
-        print(String(format: "0 + 0               : %lld (%.2f %%) | Zufall %.2f %% | Δ %+0.2f %-Pkt.",
-                     Int64(zeroTickets), zeroShare, expectedZeroShare, zeroShare - expectedZeroShare))
-        print(String(format: "Klassen-Summe       : %lld | Zufall %.2f", Int64(aggregate.total), expected.total))
+        print("Gesamttipps         : \(totalTickets)")
+        print("Mind. 1 Treffer     : \(winningTickets) (\(String(format: "%.2f", winningShare)) %) | Zufall \(String(format: "%.2f", expectedWinningShare)) % | Δ \(String(format: "%+.2f", winningShare - expectedWinningShare)) %-Pkt.")
+        print("0 + 0               : \(zeroTickets) (\(String(format: "%.2f", zeroShare)) %) | Zufall \(String(format: "%.2f", expectedZeroShare)) % | Δ \(String(format: "%+.2f", zeroShare - expectedZeroShare)) %-Pkt.")
+        print("Klassen-Summe       : \(aggregate.total) | Zufall \(String(format: "%.2f", expected.total))")
         print("")
     }
 
