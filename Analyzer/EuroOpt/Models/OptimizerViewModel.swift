@@ -22,6 +22,9 @@ final class OptimizerViewModel: ObservableObject {
     @Published var isHoldoutRunning = false
     @Published var holdoutStatus = "Noch kein Holdout-Test gestartet"
 
+    @Published var isParityRunning = false
+    @Published var parityStatus = "Noch kein Paritätstest gestartet"
+
     @Published var isRandomBenchmarkRunning = false
     @Published var randomBenchmarkStatus = "Noch kein Zufallsbenchmark gestartet"
 
@@ -126,7 +129,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func startLearning() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isParityRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         let recommendationCount = AppSettings.recommendationCount
@@ -156,7 +159,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func resetLearnedWeights() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isParityRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
         OptimizationGoalStore.shared.reset()
         learnedGoal = OptimizationGoalStore.shared.currentGoal
         learningResult = nil
@@ -164,7 +167,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runHoldoutTest() {
-        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isHoldoutRunning = true
@@ -189,8 +192,35 @@ final class OptimizerViewModel: ObservableObject {
         }
     }
 
+    func runWeightSweepParityTest() {
+        guard !isParityRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+
+        let draws = database.allDraws()
+        isParityRunning = true
+        parityStatus = "Paritätstest läuft – Engine und Core erhalten dieselben Kandidaten..."
+
+        print("===================================")
+        print("🔬 WEIGHT-SWEEP PARITÄTSTEST")
+        print("===================================")
+        print("🔒 Alpha 7.5 Holdout wird nicht ausgeführt.")
+        print("🔒 TicketGenerator wird pro Ziehung nur einmal verwendet.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            WeightSweepParityTest().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+
+            DispatchQueue.main.async {
+                self.parityStatus = "Paritätstest beendet – Ergebnis im Konsolen-Output"
+                self.isParityRunning = false
+            }
+        }
+    }
+
     func runRandomBenchmark() {
-        guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isRandomBenchmarkRunning = true
@@ -217,7 +247,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runNormalDistributionTest() {
-        guard !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isNormalDistributionRunning = true
@@ -244,7 +274,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runMoonPhaseTest() {
-        guard !isMoonPhaseRunning, !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isConfirmationRunning else { return }
+        guard !isMoonPhaseRunning, !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning, !isConfirmationRunning else { return }
 
         let draws = database.allDraws()
         isMoonPhaseRunning = true
@@ -271,7 +301,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runGUConfirmation() {
-        guard !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
+        guard !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning else { return }
 
         let draws = database.allDraws()
         isConfirmationRunning = true
@@ -297,7 +327,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runBacktest() {
-        guard !isLearning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning, !isParityRunning else { return }
 
         let draws = database.allDraws()
         isBacktestRunning = true
