@@ -87,6 +87,7 @@ struct OptimizerView: View {
                 viewModel.isBacktestRunning ||
                 viewModel.isLearning ||
                 viewModel.isHoldoutRunning ||
+                viewModel.isParityRunning ||
                 viewModel.isRandomBenchmarkRunning ||
                 viewModel.isNormalDistributionRunning ||
                 viewModel.isConfirmationRunning
@@ -104,6 +105,7 @@ struct OptimizerView: View {
                 viewModel.isBacktestRunning ||
                 viewModel.isLearning ||
                 viewModel.isHoldoutRunning ||
+                viewModel.isParityRunning ||
                 viewModel.isRandomBenchmarkRunning ||
                 viewModel.isNormalDistributionRunning ||
                 viewModel.isConfirmationRunning
@@ -126,6 +128,7 @@ struct OptimizerView: View {
                 viewModel.isBacktestRunning ||
                 viewModel.isLearning ||
                 viewModel.isHoldoutRunning ||
+                viewModel.isParityRunning ||
                 viewModel.isRandomBenchmarkRunning ||
                 viewModel.isNormalDistributionRunning ||
                 viewModel.isConfirmationRunning
@@ -163,6 +166,7 @@ struct OptimizerView: View {
                     viewModel.isCalculating ||
                     viewModel.isBacktestRunning ||
                     viewModel.isHoldoutRunning ||
+                    viewModel.isParityRunning ||
                     viewModel.isRandomBenchmarkRunning ||
                     viewModel.isNormalDistributionRunning ||
                     viewModel.isConfirmationRunning
@@ -177,6 +181,7 @@ struct OptimizerView: View {
                     viewModel.isCalculating ||
                     viewModel.isBacktestRunning ||
                     viewModel.isHoldoutRunning ||
+                    viewModel.isParityRunning ||
                     viewModel.isRandomBenchmarkRunning ||
                     viewModel.isNormalDistributionRunning ||
                     viewModel.isConfirmationRunning
@@ -214,6 +219,43 @@ struct OptimizerView: View {
                 Text(viewModel.holdoutStatus)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                Divider()
+
+                Text("🔬 Paritätstest")
+                    .font(.subheadline)
+                    .bold()
+
+                Text("Vergleicht den bestehenden WeightSweepEngine-Berechnungspfad mit WeightSweepCore. Beide erhalten exakt dieselben zufällig erzeugten Kandidaten; Alpha 7.5 run() wird dabei nicht ausgeführt.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    viewModel.runWeightSweepParityTest()
+                } label: {
+                    if viewModel.isParityRunning {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("Weight-Sweep-Parität testen", systemImage: "arrow.left.arrow.right")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(
+                    viewModel.isParityRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning
+                )
+
+                Text(viewModel.parityStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -247,6 +289,7 @@ struct OptimizerView: View {
                     viewModel.isBacktestRunning ||
                     viewModel.isLearning ||
                     viewModel.isHoldoutRunning ||
+                    viewModel.isParityRunning ||
                     viewModel.isNormalDistributionRunning ||
                     viewModel.isConfirmationRunning
                 )
@@ -288,6 +331,7 @@ struct OptimizerView: View {
                     viewModel.isBacktestRunning ||
                     viewModel.isLearning ||
                     viewModel.isHoldoutRunning ||
+                    viewModel.isParityRunning ||
                     viewModel.isConfirmationRunning
                 )
 
@@ -327,6 +371,7 @@ struct OptimizerView: View {
                     viewModel.isBacktestRunning ||
                     viewModel.isLearning ||
                     viewModel.isHoldoutRunning ||
+                    viewModel.isParityRunning ||
                     viewModel.isRandomBenchmarkRunning ||
                     viewModel.isNormalDistributionRunning
                 )
