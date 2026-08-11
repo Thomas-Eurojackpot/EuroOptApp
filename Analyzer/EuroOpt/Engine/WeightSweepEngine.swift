@@ -22,6 +22,24 @@ final class WeightSweepEngine {
         var expectedEuroHits = 0.0
     }
 
+    private struct HitClassAggregate {
+        var counts = Array(repeating: 0, count: 18)
+
+        mutating func add(mainHits: Int, euroHits: Int) {
+            let main = min(max(mainHits, 0), 5)
+            let euro = min(max(euroHits, 0), 2)
+            counts[main * 3 + euro] += 1
+        }
+
+        func count(mainHits: Int, euroHits: Int) -> Int {
+            counts[mainHits * 3 + euroHits]
+        }
+
+        var total: Int {
+            counts.reduce(0, +)
+        }
+    }
+
     private let profileCount = 32
     private let candidateCountMinimum = 301
 
@@ -109,6 +127,7 @@ final class WeightSweepEngine {
         var holdoutEuroHits = 0
         var holdoutTickets = 0
         var holdoutExpectedEuroHits = 0.0
+        var holdoutHitClasses = HitClassAggregate()
 
         for index in holdoutStart..<draws.count {
             let trainingDraws = Array(draws.prefix(index))
@@ -117,8 +136,18 @@ final class WeightSweepEngine {
             let cache = ScoreCache(draws: trainingDraws)
             let winnerScoreEngine = ScoreEngine(cache: cache, goal: winner.goal)
             let best = bestTickets(candidates: candidates, scoreEngine: winnerScoreEngine, limit: recommendationCount)
-            holdoutHits += best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
-            holdoutEuroHits += best.reduce(0) { $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count }
+
+            // Trefferklassen werden exakt auf denselben Tipps berechnet,
+            // die auch für Ø Haupttreffer / Ø Eurotreffer verwendet werden.
+            // Keine zweite Generierung, kein anderes Profil und kein anderes Holdout.
+            for ticket in best {
+                let mainHits = Set(ticket.numbers).intersection(targetDraw.numbers).count
+                let euroHits = Set(ticket.euroNumbers).intersection(targetDraw.euroNumbers).count
+                holdoutHitClasses.add(mainHits: mainHits, euroHits: euroHits)
+                holdoutHits += mainHits
+                holdoutEuroHits += euroHits
+            }
+
             holdoutTickets += best.count
             holdoutExpectedEuroHits += expectedEuroHitsForTickets(for: targetDraw.date, ticketCount: best.count)
 
@@ -146,8 +175,12 @@ final class WeightSweepEngine {
         print(String(format: "Δ Euro vs Basis     : %+.3f", holdoutEuroAverage - holdoutEuroExpected))
         print(String(format: "Kombinierter Δ      : %+.3f", (holdoutAverage - randomMain) + (holdoutEuroAverage - holdoutEuroExpected)))
         print("")
+
+        printHitClassEvaluation(holdoutHitClasses, totalTickets: holdoutTickets)
+
         print("Interpretation: Das Profil wurde ausschließlich auf der Validation-Hälfte gewählt.")
         print("Der Holdout wurde weder zur Gewichtswahl noch zur Kombinationsermittlung verwendet.")
+        print("Die Trefferklassen stammen exakt aus denselben Holdout-Tipps wie Ø Haupttreffer und Ø Eurotreffer.")
         print("Die Euro-Basis berücksichtigt den Wechsel von 10 auf 12 Eurozahlen ab 25.03.2022.")
         print("")
         print(String(format: "⏱ Weight-Sweep: %.2f Sekunden", Date().timeIntervalSince(start)))
@@ -284,6 +317,37 @@ final class WeightSweepEngine {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar.date(from: DateComponents(year: 2022, month: 3, day: 25))!
+    }
+
+    private func printHitClassEvaluation(_ aggregate: HitClassAggregate, totalTickets: Int) {
+        print("-----------------------------------")
+        print("TREFFERKLASSEN – EXAKT DERSELBE HOLDOUT")
+        print("-----------------------------------")
+        print("Klasse     Anzahl     Anteil")
+
+        for mainHits in stride(from: 5, through: 0, by: -1) {
+            for euroHits in stride(from: 2, through: 0, by: -1) {
+                let count = aggregate.count(mainHits: mainHits, euroHits: euroHits)
+                let share = totalTickets > 0 ? Double(count) / Double(totalTickets) * 100.0 : 0
+                print(String(format: "%d + %d     %6d     %6.2f %%", mainHits, euroHits, count, share))
+            }
+        }
+
+        let winningTickets = (0...5).reduce(0) { partial, mainHits in
+            partial + (0...2).reduce(0) { inner, euroHits in
+                (mainHits > 0 || euroHits > 0) ? inner + aggregate.count(mainHits: mainHits, euroHits: euroHits) : inner
+            }
+        }
+        let zeroTickets = aggregate.count(mainHits: 0, euroHits: 0)
+        let winningShare = totalTickets > 0 ? Double(winningTickets) / Double(totalTickets) * 100.0 : 0
+        let zeroShare = totalTickets > 0 ? Double(zeroTickets) / Double(totalTickets) * 100.0 : 0
+
+        print("")
+        print(String(format: "Gesamttipps         : %d", totalTickets))
+        print(String(format: "Mind. 1 Treffer     : %d (%.2f %%)", winningTickets, winningShare))
+        print(String(format: "0 + 0               : %d (%.2f %%)", zeroTickets, zeroShare))
+        print(String(format: "Klassen-Summe       : %d", aggregate.total))
+        print("")
     }
 
     private func makeProfiles() -> [Profile] {
