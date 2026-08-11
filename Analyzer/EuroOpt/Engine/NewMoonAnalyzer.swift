@@ -25,9 +25,9 @@ final class NewMoonAnalyzer {
         let category: Category
     }
 
-    // Meeus-style simple synodic approximation.
-    // J2000 reference new moon: 2000-01-06 18:14 UTC.
-    private let referenceNewMoon = 2451550.25972
+    // Identical reference and synodic period as MoonPhaseEngine.
+    // J2000 reference: Julian Day 2451550.09765.
+    private let referenceNewMoon = 2451550.09765
     private let synodicMonth = 29.530588853
 
     func analyze(draws: [EuroJackpotDraw]) -> [Result] {
@@ -40,7 +40,9 @@ final class NewMoonAnalyzer {
         let nearestCycle = cycles.rounded()
         let nearestJulianDay = referenceNewMoon + nearestCycle * synodicMonth
         let distanceDays = abs(julianDay - nearestJulianDay)
-        let nearestDate = Date(timeIntervalSince1970: (nearestJulianDay - 2440587.5) * 86400.0)
+        let nearestDate = Date(
+            timeIntervalSince1970: (nearestJulianDay - 2440587.5) * 86400.0
+        )
 
         let category: Category
         switch distanceDays {
@@ -68,5 +70,43 @@ final class NewMoonAnalyzer {
         analyze(draws: draws).reduce(into: [:]) { counts, result in
             counts[result.category, default: 0] += 1
         }
+    }
+
+    // Pure historical analysis only.
+    // No candidate generation, no weights, no Alpha 7.5 interaction.
+    func runTest(draws: [EuroJackpotDraw]) {
+        let start = Date()
+        let results = analyze(draws: draws)
+
+        guard !results.isEmpty else {
+            print("❌ Neumond-Analyse: keine Ziehungen vorhanden")
+            return
+        }
+
+        print("")
+        print("===================================")
+        print("🌑 NEUMOND – REINER ANALYSETEST")
+        print("===================================")
+        print("Ziehungen            : \(results.count)")
+        print("Berechnung           : identisch zu MoonPhaseEngine")
+        print("Alpha 7.5            : nicht verwendet")
+        print("Gewichte / EQI       : nicht verwendet")
+        print("Tippgenerierung      : nicht verwendet")
+        print("")
+        print("Kategorie             Anzahl     Anteil")
+
+        for category in Category.allCases {
+            let count = results.filter { $0.category == category }.count
+            let share = Double(count) / Double(results.count) * 100.0
+            print("\(category.rawValue.padding(toLength: 20, withPad: " ", startingAt: 0))\(count)     \(String(format: "%.2f", share)) %")
+        }
+
+        print("")
+        print("Interpretation:")
+        print("- Dies ist ausschließlich eine historische Neumond-Klassifizierung.")
+        print("- Es wird kein Profil gewählt und kein Tipp erzeugt.")
+        print("- Alpha 7.5 und MoonPhaseEngine bleiben unangetastet.")
+        print("- Die Neumond-Datumsberechnung verwendet exakt dieselbe Referenz und denselben synodischen Monat wie MoonPhaseEngine.")
+        print(String(format: "# ⏱ Neumond-Analyse: %.2f Sekunden", Date().timeIntervalSince(start)))
     }
 }
