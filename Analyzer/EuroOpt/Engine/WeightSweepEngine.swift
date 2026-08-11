@@ -411,12 +411,12 @@ final class WeightSweepEngine {
         let expectedZeroShare = totalTickets > 0 ? expected.expectedCount(mainHits: 0, euroHits: 0) / Double(totalTickets) * 100.0 : 0
 
         print("")
-        print(String(format: "Gesamttipps         : %d", totalTickets))
+        print(String(format: "Gesamttipps         : %d", Int32(totalTickets)))
         print(String(format: "Mind. 1 Treffer     : %d (%.2f %%) | Zufall %.2f %% | Δ %+0.2f %-Pkt.",
-                     winningTickets, winningShare, expectedWinningShare, winningShare - expectedWinningShare))
+                     Int32(winningTickets), winningShare, expectedWinningShare, winningShare - expectedWinningShare))
         print(String(format: "0 + 0               : %d (%.2f %%) | Zufall %.2f %% | Δ %+0.2f %-Pkt.",
-                     zeroTickets, zeroShare, expectedZeroShare, zeroShare - expectedZeroShare))
-        print(String(format: "Klassen-Summe       : %d | Zufall %.2f", aggregate.total, expected.total))
+                     Int32(zeroTickets), zeroShare, expectedZeroShare, zeroShare - expectedZeroShare))
+        print(String(format: "Klassen-Summe       : %d | Zufall %.2f", Int32(aggregate.total), expected.total))
         print("")
     }
 
