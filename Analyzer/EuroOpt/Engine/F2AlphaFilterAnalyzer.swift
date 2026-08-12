@@ -65,9 +65,9 @@ final class F2AlphaFilterAnalyzer {
     private let thresholds: [Double] = [0.00, 0.02, 0.04, 0.06, 0.08, 0.10]
 
     // Large Monte-Carlo comparison: random tickets per holdout draw.
-    private let randomTicketsPerDraw = 1_000
+    private let randomTicketsPerDraw = 10_000
 
-    func run(draws: [EuroJackpotDraw], recommendationCount: Int, splitCount: Int = 10) {
+    func run(draws: [EuroJackpotDraw], recommendationCount: Int, splitCount: Int = 20) {
         guard draws.count > warmup + 20 else {
             print("❌ F2/50 → Alpha Filter: zu wenige Ziehungen")
             return
