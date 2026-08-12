@@ -2,8 +2,8 @@
 //  FrequencyStabilityAnalyzer.swift
 //  EuroOpt
 //
-//  Historical stability comparison for fixed frequency windows.
-//  Uses separated historical blocks and fresh validation/holdout halves.
+//  Stability sweep for frequency windows using separated historical blocks
+//  and fresh validation/holdout halves.
 //
 
 import Foundation
@@ -30,11 +30,12 @@ final class FrequencyStabilityAnalyzer {
         let validation: Double
         let holdout: Double
         let positiveHoldouts: Int
+        let periods: Int
     }
 
     private let warmup = WeightSweepCore.warmup
     private let periodCount = 5
-    private let frequencyWindows = [25, 50, 75, 100, 150]
+    private let windows = [25, 40, 50, 60, 75, 100, 125, 150]
 
     func run(draws: [EuroJackpotDraw]) {
         guard draws.count > warmup + 100 else {
@@ -45,22 +46,21 @@ final class FrequencyStabilityAnalyzer {
         let total = draws.count - warmup
         let periodSize = total / periodCount
         let start = Date()
+        var results: [WindowResult] = []
 
         print("")
         print("===================================")
-        print("📊 FREQUENZ-FENSTER – 5-PERIODEN-STABILITÄT")
+        print("📊 FREQUENZ-FENSTER – STABILITÄTS-SWEEP")
         print("===================================")
         print("Warm-up             : \(warmup)")
-        print("Fenster             : 25 / 50 / 75 / 100 / 150 Ziehungen")
+        print("Fenster             : \(windows.map(String.init).joined(separator: " / ")) Ziehungen")
         print("Perioden            : \(periodCount) zeitlich getrennte Blöcke")
         print("Aufteilung          : je Block Validation / Holdout")
         print("Holdout             : erst nach der Tippbildung")
         print("Profilwahl          : keine")
         print("")
 
-        var windowResults: [WindowResult] = []
-
-        for window in frequencyWindows {
+        for window in windows {
             var validationScores: [Double] = []
             var holdoutScores: [Double] = []
             var positiveHoldouts = 0
@@ -92,18 +92,16 @@ final class FrequencyStabilityAnalyzer {
                 if holdout.score > 0 { positiveHoldouts += 1 }
             }
 
-            let averageValidation = validationScores.isEmpty
-                ? 0
-                : validationScores.reduce(0, +) / Double(validationScores.count)
-            let averageHoldout = holdoutScores.isEmpty
-                ? 0
-                : holdoutScores.reduce(0, +) / Double(holdoutScores.count)
+            guard !validationScores.isEmpty else { continue }
+            let averageValidation = validationScores.reduce(0, +) / Double(validationScores.count)
+            let averageHoldout = holdoutScores.reduce(0, +) / Double(holdoutScores.count)
 
-            windowResults.append(WindowResult(
+            results.append(WindowResult(
                 window: window,
                 validation: averageValidation,
                 holdout: averageHoldout,
-                positiveHoldouts: positiveHoldouts
+                positiveHoldouts: positiveHoldouts,
+                periods: holdoutScores.count
             ))
         }
 
@@ -111,28 +109,41 @@ final class FrequencyStabilityAnalyzer {
         print("GESAMTVERGLEICH")
         print("-----------------------------------")
         print("Fenster   Ø Val Δ    Ø Hold Δ   Pos. Holdouts")
-        for result in windowResults {
-            print(String(format: "%-7d   %+.3f      %+.3f        %d/%d",
+        for result in results {
+            print(String(format: "%-8d  %+.3f      %+.3f        %d/%d",
                          result.window,
                          result.validation,
                          result.holdout,
                          result.positiveHoldouts,
-                         periodCount))
+                         result.periods))
         }
 
-        if let best = windowResults.max(by: { $0.holdout < $1.holdout }) {
+        if let bestHoldout = results.max(by: {
+            if $0.holdout == $1.holdout {
+                return $0.validation < $1.validation
+            }
+            return $0.holdout < $1.holdout
+        }) {
             print("")
-            print("Top nach Ø Holdout:")
-            print(String(format: "%d Ziehungen: Hold Δ %+.3f | Val Δ %+.3f | positive Holdouts %d/%d",
-                         best.window,
-                         best.holdout,
-                         best.validation,
-                         best.positiveHoldouts,
-                         periodCount))
+            print(String(format: "Top nach Holdout: %d Ziehungen | Hold Δ %+.3f | Val Δ %+.3f | positive Holdouts %d/%d",
+                         bestHoldout.window,
+                         bestHoldout.holdout,
+                         bestHoldout.validation,
+                         bestHoldout.positiveHoldouts,
+                         bestHoldout.periods))
         }
 
-        print(String(format: "⏱ Frequenz-Fenster-Stabilität: %.2f Sekunden",
-                     Date().timeIntervalSince(start)))
+        if let bestBalanced = results.max(by: {
+            let lhs = $0.holdout + 0.5 * $0.validation
+            let rhs = $1.holdout + 0.5 * $1.validation
+            return lhs < rhs
+        }) {
+            print(String(format: "Top kombiniert  : %d Ziehungen | Hold+0.5×Val %+.3f",
+                         bestBalanced.window,
+                         bestBalanced.holdout + 0.5 * bestBalanced.validation))
+        }
+
+        print(String(format: "⏱ Frequenz-Sweep: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
     }
 
