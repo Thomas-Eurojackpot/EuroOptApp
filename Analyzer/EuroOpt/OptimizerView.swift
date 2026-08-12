@@ -20,6 +20,7 @@ struct OptimizerView: View {
                 actionSection
                 learningSection
                 holdoutSection
+                robustnessSection
                 randomBenchmarkSection
                 normalDistributionSection
                 confirmationSection
@@ -89,7 +90,8 @@ struct OptimizerView: View {
                 viewModel.isHoldoutRunning ||
                 viewModel.isRandomBenchmarkRunning ||
                 viewModel.isNormalDistributionRunning ||
-                viewModel.isConfirmationRunning
+                viewModel.isConfirmationRunning ||
+                viewModel.isRobustnessRunning
             )
 
             Button {
@@ -106,7 +108,8 @@ struct OptimizerView: View {
                 viewModel.isHoldoutRunning ||
                 viewModel.isRandomBenchmarkRunning ||
                 viewModel.isNormalDistributionRunning ||
-                viewModel.isConfirmationRunning
+                viewModel.isConfirmationRunning ||
+                viewModel.isRobustnessRunning
             )
 
             Button {
@@ -128,7 +131,8 @@ struct OptimizerView: View {
                 viewModel.isHoldoutRunning ||
                 viewModel.isRandomBenchmarkRunning ||
                 viewModel.isNormalDistributionRunning ||
-                viewModel.isConfirmationRunning
+                viewModel.isConfirmationRunning ||
+                viewModel.isRobustnessRunning
             )
         }
     }
@@ -165,7 +169,8 @@ struct OptimizerView: View {
                     viewModel.isHoldoutRunning ||
                     viewModel.isRandomBenchmarkRunning ||
                     viewModel.isNormalDistributionRunning ||
-                    viewModel.isConfirmationRunning
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning
                 )
 
                 Button("Standardprofil wiederherstellen") {
@@ -179,7 +184,8 @@ struct OptimizerView: View {
                     viewModel.isHoldoutRunning ||
                     viewModel.isRandomBenchmarkRunning ||
                     viewModel.isNormalDistributionRunning ||
-                    viewModel.isConfirmationRunning
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning
                 )
 
                 Text(viewModel.learningStatus)
@@ -219,6 +225,47 @@ struct OptimizerView: View {
         }
     }
 
+    private var robustnessSection: some View {
+        GroupBox("🧪 Alpha 7.5 Robustheitsanalyse") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Wiederholt die Validation/Holdout-Prüfung über fünf zeitlich getrennte Splits. Das Profil wird je Split ausschließlich aus der Validation gewählt und danach unverändert im Holdout geprüft.")
+                    .foregroundStyle(.secondary)
+
+                Text("Der Test ist separat: Der bestehende Produktions-WeightSweepEngine und das gespeicherte Profil werden nicht verändert. A100 wird wie jedes andere Profil behandelt.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    viewModel.runRobustnessAnalysis()
+                } label: {
+                    if viewModel.isRobustnessRunning {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("Robustheitsanalyse starten", systemImage: "waveform.path.ecg")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRobustnessRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning
+                )
+
+                Text(viewModel.robustnessStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private var randomBenchmarkSection: some View {
         GroupBox("🎲 Empirischer Zufallsbenchmark") {
             VStack(alignment: .leading, spacing: 10) {
@@ -248,7 +295,8 @@ struct OptimizerView: View {
                     viewModel.isLearning ||
                     viewModel.isHoldoutRunning ||
                     viewModel.isNormalDistributionRunning ||
-                    viewModel.isConfirmationRunning
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning
                 )
 
                 Text(viewModel.randomBenchmarkStatus)
@@ -288,7 +336,8 @@ struct OptimizerView: View {
                     viewModel.isBacktestRunning ||
                     viewModel.isLearning ||
                     viewModel.isHoldoutRunning ||
-                    viewModel.isConfirmationRunning
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning
                 )
 
                 Text(viewModel.normalDistributionStatus)
@@ -328,7 +377,8 @@ struct OptimizerView: View {
                     viewModel.isLearning ||
                     viewModel.isHoldoutRunning ||
                     viewModel.isRandomBenchmarkRunning ||
-                    viewModel.isNormalDistributionRunning
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isRobustnessRunning
                 )
 
                 Text(viewModel.confirmationStatus)
