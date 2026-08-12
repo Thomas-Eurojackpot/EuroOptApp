@@ -1,23 +1,12 @@
 import Foundation
 
-/// Isolierter Walk-Forward-Test für Häufigkeit als zusätzliches Lernsignal.
+/// Walk-forward research analyzer for combining the fixed F2/50 frequency signal
+/// with longer historical frequency windows.
 ///
-/// Die Analyse verändert F2/50 nicht. Sie vergleicht verschiedene historische
-/// Frequenzfenster sowie Hot/Cold/Mix-Varianten und misst ausschließlich auf
-/// zeitlich getrennten Holdouts.
+/// The analyzer never changes F2/50. For every split it selects one frequency
+/// window/weight combination using validation only, then evaluates that choice
+/// on the subsequent holdout period.
 final class FrequencyLearningAnalyzer {
-    private struct Variant {
-        let name: String
-        let window: Int?
-        let mode: Mode
-        let blendWithF2: Double
-
-        enum Mode {
-            case frequency
-            case hotColdMix
-            case cold
-        }
-    }
 
     private struct Aggregate {
         var hits = 0
@@ -48,258 +37,244 @@ final class FrequencyLearningAnalyzer {
         }
     }
 
+    private struct Variant: Hashable {
+        let window: Int
+        let weightPercent: Int
+    }
+
     private struct SplitResult {
         let split: Int
-        let validation: [Double]
-        let holdout: [Double]
+        let winner: Variant
+        let validation: Double
+        let holdout: Aggregate
+        let f2Holdout: Aggregate
     }
 
     private let warmup = WeightSweepCore.warmup
-    private let splitCount = 10
+    private let baseWindow = 50
     private let windows = [50, 100, 200, 400]
-    private let blendWeights = [0.25, 0.50, 0.75]
+    private let weights = Array(stride(from: 10, through: 90, by: 10))
 
-    func run(draws: [EuroJackpotDraw]) {
-        guard draws.count > warmup + splitCount * 4 else {
-            print("❌ Frequenz-Lernanalyse: zu wenige Ziehungen")
+    func run(draws: [EuroJackpotDraw], splitCount: Int = 10) {
+        guard draws.count > warmup + 20 else {
+            print("❌ Frequency Blend Sweep: zu wenige Ziehungen")
             return
         }
 
         let start = Date()
-        let variants = makeVariants()
         let totalTests = draws.count - warmup
-        let availableWindow = totalTests / splitCount
-        var splitResults: [SplitResult] = []
-        var holdoutTotals = variants.map { _ in Aggregate() }
-        var validationTotals = variants.map { _ in Aggregate() }
+        let requestedSplits = max(1, min(splitCount, totalTests / 2))
+        let availableWindow = totalTests / requestedSplits
+        let variants = windows.flatMap { window in
+            weights.map { Variant(window: window, weightPercent: $0) }
+        }
+        var results: [SplitResult] = []
 
         print("")
         print("===================================")
-        print("📊 FREQUENZ-LERNANALYSE")
+        print("📊 F2/50 → FREQUENZ-BLEND-SWEEP")
         print("===================================")
         print("Warm-up             : \(warmup)")
-        print("Fenster             : \(windows.map(String.init).joined(separator: " / ")) + gesamte Historie")
-        print("Varianten            : Häufigkeit / Hot-Cold-Mix / F2-Mischungen")
-        print("Splits              : \(splitCount) zeitlich getrennte Blöcke")
-        print("Holdout             : erst nach der Validation-Auswahl")
+        print("Splits              : \(requestedSplits)")
+        print("Basis               : F2/50")
+        print("Fenster             : \(windows.map(String.init).joined(separator: " / "))")
+        print("Blend               : 10% ... 90% Frequenz")
+        print("Auswahl             : ausschließlich Validation")
+        print("Holdout             : erst nach der Auswahl")
         print("")
 
-        for split in 0..<splitCount {
+        for split in 0..<requestedSplits {
             let splitStart = warmup + split * availableWindow
-            let splitEnd = split == splitCount - 1
+            let splitEnd = split == requestedSplits - 1
                 ? draws.count
                 : min(draws.count, warmup + (split + 1) * availableWindow)
-            let size = splitEnd - splitStart
-            guard size >= 4 else { continue }
+            let splitSize = splitEnd - splitStart
+            guard splitSize >= 2 else { continue }
 
-            let validationEnd = splitStart + size / 2
-            var validationByVariant = variants.map { _ in Aggregate() }
-            var holdoutByVariant = variants.map { _ in Aggregate() }
+            let validationEnd = splitStart + splitSize / 2
+            var validation: [Variant: Aggregate] = [:]
+            for variant in variants { validation[variant] = Aggregate() }
 
             for index in splitStart..<validationEnd {
-                let training = Array(draws.prefix(index))
+                let trainingDraws = Array(draws.prefix(index))
                 let target = draws[index]
-                for (variantIndex, variant) in variants.enumerated() {
-                    let ticket = makeTicket(variant: variant, draws: training)
-                    validationByVariant[variantIndex].add(ticket: ticket, target: target)
+
+                for variant in variants {
+                    let ticket = makeBlendTicket(from: trainingDraws, variant: variant)
+                    validation[variant, default: Aggregate()].add(ticket: ticket, target: target)
                 }
             }
 
-            guard validationByVariant.indices.max(by: {
-                validationByVariant[$0].score < validationByVariant[$1].score
-            }) != nil else { continue }
+            guard let winner = variants.max(by: { lhs, rhs in
+                let left = validation[lhs]?.score ?? -.infinity
+                let right = validation[rhs]?.score ?? -.infinity
+                if left == right {
+                    if lhs.weightPercent == rhs.weightPercent {
+                        return lhs.window > rhs.window
+                    }
+                    return lhs.weightPercent > rhs.weightPercent
+                }
+                return left < right
+            }) else { continue }
+
+            let winnerValidation = validation[winner]?.score ?? 0
+            var winnerHoldout = Aggregate()
+            var f2Holdout = Aggregate()
 
             for index in validationEnd..<splitEnd {
-                let training = Array(draws.prefix(index))
+                let trainingDraws = Array(draws.prefix(index))
                 let target = draws[index]
-                for (variantIndex, variant) in variants.enumerated() {
-                    let ticket = makeTicket(variant: variant, draws: training)
-                    holdoutByVariant[variantIndex].add(ticket: ticket, target: target)
-                }
+
+                winnerHoldout.add(
+                    ticket: makeBlendTicket(from: trainingDraws, variant: winner),
+                    target: target
+                )
+                f2Holdout.add(
+                    ticket: makeBlendTicket(
+                        from: trainingDraws,
+                        variant: Variant(window: baseWindow, weightPercent: 0)
+                    ),
+                    target: target
+                )
             }
 
-            for index in variants.indices {
-                validationTotals[index].merge(validationByVariant[index])
-                holdoutTotals[index].merge(holdoutByVariant[index])
-            }
-
-            splitResults.append(
+            results.append(
                 SplitResult(
                     split: split + 1,
-                    validation: validationByVariant.map(\.score),
-                    holdout: holdoutByVariant.map(\.score)
+                    winner: winner,
+                    validation: winnerValidation,
+                    holdout: winnerHoldout,
+                    f2Holdout: f2Holdout
                 )
             )
 
-            let winnerIndex = validationByVariant.indices.max(by: {
-                validationByVariant[$0].score < validationByVariant[$1].score
-            })!
-            print(String(format: "Split %2d | Gewinner Validation: %@ | Val Δ %+.3f | Hold Δ %+.3f",
-                         split + 1,
-                         variants[winnerIndex].name,
-                         validationByVariant[winnerIndex].score,
-                         holdoutByVariant[winnerIndex].score))
+            print(String(
+                format: "Split %2d | Gewinner: Freq%03d + %2d%% | Val Δ %+.3f | Hold Δ %+.3f | F2 Hold Δ %+.3f",
+                split + 1,
+                winner.window,
+                winner.weightPercent,
+                winnerValidation,
+                winnerHoldout.score,
+                f2Holdout.score
+            ))
         }
 
-        print("")
-        print("===================================")
-        print("GESAMTVERGLEICH FREQUENZ-VARIANTEN")
-        print("===================================")
-        print("Variante | Val Δ | Hold Δ | Pos. Holdouts")
+        guard !results.isEmpty else { return }
 
-        for index in variants.indices {
-            let positive = splitResults.reduce(0) { partial, split in
-                partial + (split.holdout[index] > 0 ? 1 : 0)
+        var totalSelected = Aggregate()
+        var totalF2 = Aggregate()
+        var selectedBetterSplits = 0
+        var f2BetterSplits = 0
+        var winnerCounts: [Variant: Int] = [:]
+
+        for result in results {
+            totalSelected.merge(result.holdout)
+            totalF2.merge(result.f2Holdout)
+            winnerCounts[result.winner, default: 0] += 1
+
+            if result.holdout.score > result.f2Holdout.score {
+                selectedBetterSplits += 1
+            } else if result.f2Holdout.score > result.holdout.score {
+                f2BetterSplits += 1
             }
-            print(String(format: "%@ | %+.3f | %+.3f | %d/%d",
-                         variants[index].name,
-                         validationTotals[index].score,
-                         holdoutTotals[index].score,
-                         positive,
-                         splitResults.count))
         }
 
         print("")
         print("===================================")
-        print("BESTE VARIANTE JE SPLIT")
+        print("GESAMT: VALIDATION-GEWÄHLTER BLEND")
         print("===================================")
-        var winnerCounts = Array(repeating: 0, count: variants.count)
-        var winnerHoldout = Array(repeating: 0.0, count: variants.count)
+        print(String(format: "Gewählter Blend Hold Δ : %+.3f", totalSelected.score))
+        print(String(format: "F2/50 Hold Δ           : %+.3f", totalF2.score))
+        print(String(format: "Vorteil ggü. F2        : %+.3f", totalSelected.score - totalF2.score))
+        print("Blend besser in Splits : \(selectedBetterSplits)/\(results.count)")
+        print("F2 besser in Splits    : \(f2BetterSplits)/\(results.count)")
+        print("")
+        print("GEWÄHLTE VARIANTEN")
+        print("-----------------------------------")
 
-        for split in splitResults {
-            guard let winner = split.validation.indices.max(by: {
-                split.validation[$0] < split.validation[$1]
-            }) else { continue }
-            winnerCounts[winner] += 1
-            winnerHoldout[winner] += split.holdout[winner]
-        }
-
-        for index in variants.indices where winnerCounts[index] > 0 {
-            print(String(format: "%@ | Validation-Siege %d/%d | Summe Holdout-Δ %+.3f",
-                         variants[index].name,
-                         winnerCounts[index],
-                         splitResults.count,
-                         winnerHoldout[index]))
+        for variant in variants {
+            let count = winnerCounts[variant, default: 0]
+            if count > 0 {
+                print("Freq\(variant.window) + \(variant.weightPercent)% : \(count)/\(results.count)")
+            }
         }
 
         print("")
-        print("Interpretation:")
-        print("Die Auswahl erfolgt ausschließlich aus der Validation.")
-        print("Der Holdout wird erst nach der Auswahl bewertet.")
-        print("F2/50 bleibt unverändert und dient als Referenz: Frequenzfenster 50.")
-        print("Hot/Cold ist nur dann interessant, wenn es außerhalb der Validation stabil besser als F2/50 abschneidet.")
+        print("Hinweis:")
+        print("Die Blend-Variante wird ausschließlich aus der Validation gewählt.")
+        print("Der Holdout wird erst nach der jeweiligen Auswahl ausgewertet.")
+        print("F2/50 bleibt unverändert die Referenz.")
         print("")
-        print(String(format: "⏱ Frequenz-Lernanalyse: %.2f Sekunden", Date().timeIntervalSince(start)))
-        print("===================================")
+        print(String(format: "⏱ Frequenz-Blend-Sweep: %.2f Sekunden", Date().timeIntervalSince(start)))
     }
 
-    private func makeVariants() -> [Variant] {
-        var result: [Variant] = []
-        for window in windows {
-            result.append(Variant(name: "Freq \(window)", window: window, mode: .frequency, blendWithF2: 0))
-        }
-        result.append(Variant(name: "Freq gesamt", window: nil, mode: .frequency, blendWithF2: 0))
-        for weight in blendWeights {
-            result.append(Variant(name: String(format: "F2 + Freq100 %.0f%%", weight * 100), window: 100, mode: .frequency, blendWithF2: weight))
-        }
-        for weight in blendWeights {
-            result.append(Variant(name: String(format: "F2 + Freq400 %.0f%%", weight * 100), window: 400, mode: .frequency, blendWithF2: weight))
-        }
-        result.append(Variant(name: "Hot/Cold 100", window: 100, mode: .hotColdMix, blendWithF2: 0))
-        result.append(Variant(name: "Cold 100", window: 100, mode: .cold, blendWithF2: 0))
-        return result
+    private func makeBlendTicket(from draws: [EuroJackpotDraw], variant: Variant) -> Ticket {
+        let f2Source = Array(draws.suffix(baseWindow))
+        let frequencySource = Array(draws.suffix(variant.window))
+        let weight = Double(variant.weightPercent) / 100.0
+
+        let main = blendRankedNumbers(
+            baseDraws: f2Source,
+            frequencyDraws: frequencySource,
+            range: 1...50,
+            limit: 5,
+            isEuro: false,
+            weight: weight
+        )
+        let euro = blendRankedNumbers(
+            baseDraws: f2Source,
+            frequencyDraws: frequencySource,
+            range: 1...12,
+            limit: 2,
+            isEuro: true,
+            weight: weight
+        )
+
+        return Ticket(numbers: main.sorted(), euroNumbers: euro.sorted())
     }
 
-    private func makeTicket(variant: Variant, draws: [EuroJackpotDraw]) -> Ticket {
-        let mainF2 = rankedNumbers(in: Array(draws.suffix(50)), range: 1...50, limit: 5)
-        let euroF2 = rankedNumbers(in: Array(draws.suffix(50)), range: 1...12, limit: 2, euro: true)
+    private func blendRankedNumbers(
+        baseDraws: [EuroJackpotDraw],
+        frequencyDraws: [EuroJackpotDraw],
+        range: ClosedRange<Int>,
+        limit: Int,
+        isEuro: Bool,
+        weight: Double
+    ) -> [Int] {
+        let baseCounts = counts(in: baseDraws, range: range, isEuro: isEuro)
+        let frequencyCounts = counts(in: frequencyDraws, range: range, isEuro: isEuro)
 
-        let source: [EuroJackpotDraw]
-        if let window = variant.window {
-            source = Array(draws.suffix(window))
-        } else {
-            source = draws
+        let baseTotal = Double(max(1, baseDraws.count))
+        let frequencyTotal = Double(max(1, frequencyDraws.count))
+        let baseExpected = isEuro ? baseTotal * 2.0 / 12.0 : baseTotal * 5.0 / 50.0
+        let frequencyExpected = isEuro ? frequencyTotal * 2.0 / 12.0 : frequencyTotal * 5.0 / 50.0
+
+        let scored = range.map { number -> (Int, Double) in
+            let baseRate = Double(baseCounts[number, default: 0]) / baseExpected
+            let frequencyRate = Double(frequencyCounts[number, default: 0]) / frequencyExpected
+            let score = (1.0 - weight) * baseRate + weight * frequencyRate
+            return (number, score)
+        }
+        .sorted {
+            if $0.1 == $1.1 { return $0.0 < $1.0 }
+            return $0.1 > $1.1
         }
 
-        switch variant.mode {
-        case .frequency:
-            let mainFreq = rankedNumbers(in: source, range: 1...50, limit: 50)
-            let euroFreq = rankedNumbers(in: source, range: 1...12, limit: 12, euro: true)
-            return Ticket(
-                numbers: blend(main: mainF2, secondary: Array(mainFreq.prefix(5)), secondaryWeight: variant.blendWithF2),
-                euroNumbers: blend(main: euroF2, secondary: Array(euroFreq.prefix(2)), secondaryWeight: variant.blendWithF2)
-            )
-        case .hotColdMix:
-            let hot = rankedNumbers(in: source, range: 1...50, limit: 25)
-            let cold = rankedNumbers(in: source, range: 1...50, limit: 25, ascending: true)
-            let main = Array(hot.prefix(3)) + Array(cold.prefix(2))
-            let hotEuro = rankedNumbers(in: source, range: 1...12, limit: 6, euro: true)
-            let coldEuro = rankedNumbers(in: source, range: 1...12, limit: 6, euro: true, ascending: true)
-            return Ticket(numbers: uniqueFive(main), euroNumbers: uniqueTwo(Array(hotEuro.prefix(1)) + Array(coldEuro.prefix(1))))
-        case .cold:
-            let main = rankedNumbers(in: source, range: 1...50, limit: 5, ascending: true)
-            let euro = rankedNumbers(in: source, range: 1...12, limit: 2, euro: true, ascending: true)
-            return Ticket(numbers: main.sorted(), euroNumbers: euro.sorted())
-        }
+        return Array(scored.prefix(limit).map(\.0))
     }
 
-    private func blend(main: [Int], secondary: [Int], secondaryWeight: Double) -> [Int] {
-        if secondaryWeight <= 0 { return Array(main.prefix(5)).sorted() }
-        if secondaryWeight >= 1 { return Array(secondary.prefix(main.count)).sorted() }
-
-        var score: [Int: Double] = [:]
-        for (rank, value) in main.enumerated() {
-            score[value, default: 0] += (1.0 - secondaryWeight) * Double(main.count - rank)
-        }
-        for (rank, value) in secondary.enumerated() {
-            score[value, default: 0] += secondaryWeight * Double(secondary.count - rank)
-        }
-        return score.sorted { lhs, rhs in
-            lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
-        }.prefix(5).map(\.key).sorted()
-    }
-
-    private func rankedNumbers(in draws: [EuroJackpotDraw], range: ClosedRange<Int>, limit: Int, euro: Bool = false, ascending: Bool = false) -> [Int] {
-        var counts: [Int: Int] = [:]
+    private func counts(
+        in draws: [EuroJackpotDraw],
+        range: ClosedRange<Int>,
+        isEuro: Bool
+    ) -> [Int: Int] {
+        var result: [Int: Int] = [:]
         for draw in draws {
-            let values = euro ? draw.euroNumbers : draw.numbers
-            for value in values { counts[value, default: 0] += 1 }
-        }
-        return Array(range.sorted {
-            let left = counts[$0, default: 0]
-            let right = counts[$1, default: 0]
-            if left == right { return $0 < $1 }
-            return ascending ? left < right : left > right
-        }.prefix(limit))
-    }
-
-    private func uniqueFive(_ values: [Int]) -> [Int] {
-        var result: [Int] = []
-        for value in values where !result.contains(value) {
-            result.append(value)
-            if result.count == 5 { break }
-        }
-        if result.count < 5 {
-            for value in 1...50 where !result.contains(value) {
-                result.append(value)
-                if result.count == 5 { break }
+            let values = isEuro ? draw.euroNumbers : draw.numbers
+            for value in values where range.contains(value) {
+                result[value, default: 0] += 1
             }
         }
-        return result.sorted()
-    }
-
-    private func uniqueTwo(_ values: [Int]) -> [Int] {
-        var result: [Int] = []
-        for value in values where !result.contains(value) {
-            result.append(value)
-            if result.count == 2 { break }
-        }
-        if result.count < 2 {
-            for value in 1...12 where !result.contains(value) {
-                result.append(value)
-                if result.count == 2 { break }
-            }
-        }
-        return result.sorted()
+        return result
     }
 }
