@@ -44,6 +44,7 @@ final class F2FeatureAnalyzer {
         let start = Date()
         let total = draws.count - warmup
         let validationEnd = warmup + total / 2
+
         var sums = makeBuckets(["<100", "100–124", "125–149", "150+"])
         var evens = makeBuckets((0...5).map { "\($0) gerade" })
         var highs = makeBuckets((0...5).map { "\($0) hoch (26–50)" })
@@ -61,24 +62,27 @@ final class F2FeatureAnalyzer {
         print("F2                  : letzte \(window) Trainingsziehungen")
         print("Validation          : historische erste Hälfte")
         print("Holdout             : historische zweite Hälfte")
-        print("Auswahl              : keine")
-        print("Produktionsprofil    : unverändert")
+        print("Auswahl             : keine")
+        print("Produktionsprofil   : unverändert")
         print("")
 
         for index in warmup..<draws.count {
             let training = Array(draws.prefix(index))
             let ticket = makeF2Ticket(from: training)
             let target = draws[index]
-            let isValidation = index < validationEnd
+            let validation = index < validationEnd
 
-            if isValidation { overallValidation.add(ticket: ticket, target: target) }
-            else { overallHoldout.add(ticket: ticket, target: target) }
+            if validation {
+                overallValidation.add(ticket: ticket, target: target)
+            } else {
+                overallHoldout.add(ticket: ticket, target: target)
+            }
 
-            add(ticket: ticket, target: target, to: &sums, bucket: sumBucket(ticket))
-            add(ticket: ticket, target: target, to: &evens, bucket: evenBucket(ticket))
-            add(ticket: ticket, target: target, to: &highs, bucket: highBucket(ticket))
-            add(ticket: ticket, target: target, to: &consecutive, bucket: consecutiveBucket(ticket))
-            add(ticket: ticket, target: target, to: &spreads, bucket: spreadBucket(ticket))
+            add(ticket: ticket, target: target, to: &sums, bucket: sumBucket(ticket), validation: validation)
+            add(ticket: ticket, target: target, to: &evens, bucket: evenBucket(ticket), validation: validation)
+            add(ticket: ticket, target: target, to: &highs, bucket: highBucket(ticket), validation: validation)
+            add(ticket: ticket, target: target, to: &consecutive, bucket: consecutiveBucket(ticket), validation: validation)
+            add(ticket: ticket, target: target, to: &spreads, bucket: spreadBucket(ticket), validation: validation)
         }
 
         printOverall(overallValidation, holdout: overallHoldout)
@@ -91,7 +95,7 @@ final class F2FeatureAnalyzer {
         print("")
         print("Interpretation:")
         print("Die Analyse verändert F2 nicht und wählt kein Feature für Alpha aus.")
-        print("Ein Feature ist nur dann interessant, wenn ein Unterschied zwischen Buckets sowohl in Validation als auch Holdout in ähnlicher Richtung sichtbar bleibt.")
+        print("Interessant ist nur ein Bucket-Unterschied, der in Validation und Holdout in ähnlicher Richtung sichtbar bleibt.")
         print("Ein einzelner positiver Holdout-Bucket gilt nicht als Beleg für einen nutzbaren Effekt.")
         print(String(format: "⏱ F2-Feature-Analyse: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
@@ -126,27 +130,13 @@ final class F2FeatureAnalyzer {
         names.map { Bucket(name: $0) }
     }
 
-    private func add(ticket: Ticket, target: EuroJackpotDraw, to buckets: inout [Bucket], bucket index: Int) {
-        guard buckets.indices.contains(index) else { return }
-        let aggregate = ticket
-        if target.date < WeightSweepCore.euroFormatCutoverDate() {
-            buckets[index].validation.expectedEuroHits += 0
-        }
-        // The split is determined by the target index in run(); this helper is
-        // intentionally replaced by the direct bucket update below.
-        _ = aggregate
-    }
-
-    private func add(ticket: Ticket, target: EuroJackpotDraw, to buckets: inout [Bucket], bucket index: Int, validation: Bool) {
-        guard buckets.indices.contains(index) else { return }
-        if validation { buckets[index].validation.add(ticket: ticket, target: target) }
-        else { buckets[index].holdout.add(ticket: ticket, target: target) }
-    }
-
-    private func add(ticket: Ticket, target: EuroJackpotDraw, to buckets: inout [Bucket], bucket: Int) {
+    private func add(ticket: Ticket, target: EuroJackpotDraw, to buckets: inout [Bucket], bucket: Int, validation: Bool) {
         guard buckets.indices.contains(bucket) else { return }
-        let placeholder = bucket
-        _ = placeholder
+        if validation {
+            buckets[bucket].validation.add(ticket: ticket, target: target)
+        } else {
+            buckets[bucket].holdout.add(ticket: ticket, target: target)
+        }
     }
 
     private func sumBucket(_ ticket: Ticket) -> Int {
@@ -170,7 +160,11 @@ final class F2FeatureAnalyzer {
     private func consecutiveBucket(_ ticket: Ticket) -> Int {
         let numbers = ticket.numbers.sorted()
         var pairs = 0
-        for index in 1..<numbers.count where numbers[index] == numbers[index - 1] + 1 { pairs += 1 }
+        if numbers.count > 1 {
+            for index in 1..<numbers.count where numbers[index] == numbers[index - 1] + 1 {
+                pairs += 1
+            }
+        }
         return pairs == 0 ? 0 : pairs == 1 ? 1 : 2
     }
 
@@ -200,7 +194,8 @@ final class F2FeatureAnalyzer {
         print("-----------------------------------")
         print("Bucket                 Val Δ    Hold Δ    n Val/n Hold")
         for bucket in buckets {
-            print(String(format: "%-22s %+.3f    %+.3f    %4d/%-4d", bucket.name, bucket.validation.delta, bucket.holdout.delta, bucket.validation.tickets, bucket.holdout.tickets))
+            let padded = bucket.name.padding(toLength: 22, withPad: " ", startingAt: 0)
+            print(String(format: "%@ %+.3f    %+.3f    %4d/%-4d", padded, bucket.validation.delta, bucket.holdout.delta, bucket.validation.tickets, bucket.holdout.tickets))
         }
     }
 }
