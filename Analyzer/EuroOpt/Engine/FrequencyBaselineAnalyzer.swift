@@ -2,7 +2,7 @@
 //  FrequencyBaselineAnalyzer.swift
 //  EuroOpt
 //
-//  Alpha 7.5 - simple frequency baselines F1/F2/F3/F4/F5
+//  Alpha 7.5 - simple frequency baselines
 //
 //  F1: entire training history.
 //  F2: last 50 training draws.
@@ -44,6 +44,8 @@ final class FrequencyBaselineAnalyzer {
         let split: Int
         let validation: Aggregate
         let holdout: Aggregate
+        let validationTicket: Ticket
+        let holdoutTicket: Ticket
     }
 
     private let warmup = WeightSweepCore.warmup
@@ -98,11 +100,16 @@ final class FrequencyBaselineAnalyzer {
                 let holdoutStart = validationStart + validationSize
                 var validation = Aggregate()
                 var holdout = Aggregate()
+                var validationTicket: Ticket?
+                var holdoutTicket: Ticket?
 
                 for index in validationStart..<holdoutStart {
                     let trainingDraws = Array(draws.prefix(index))
                     let target = draws[index]
                     let ticket = makeTicket(from: trainingDraws, window: model.size)
+                    if validationTicket == nil {
+                        validationTicket = ticket
+                    }
                     add(ticket: ticket, target: target, to: &validation)
                 }
 
@@ -110,10 +117,20 @@ final class FrequencyBaselineAnalyzer {
                     let trainingDraws = Array(draws.prefix(index))
                     let target = draws[index]
                     let ticket = makeTicket(from: trainingDraws, window: model.size)
+                    if holdoutTicket == nil {
+                        holdoutTicket = ticket
+                    }
                     add(ticket: ticket, target: target, to: &holdout)
                 }
 
-                splitResults.append(SplitResult(split: split + 1, validation: validation, holdout: holdout))
+                guard let validationTicket, let holdoutTicket else { continue }
+                splitResults.append(SplitResult(
+                    split: split + 1,
+                    validation: validation,
+                    holdout: holdout,
+                    validationTicket: validationTicket,
+                    holdoutTicket: holdoutTicket
+                ))
             }
 
             resultsByName[model.name] = splitResults
@@ -130,6 +147,19 @@ final class FrequencyBaselineAnalyzer {
                 return String(format: "%@ Val %+.3f Hold %+.3f", model.name, result.validation.score, result.holdout.score)
             }
             print("Split \(split) | " + values.joined(separator: " | "))
+        }
+
+        print("")
+        print("-----------------------------------")
+        print("REPRÄSENTATIVE TICKETS")
+        print("-----------------------------------")
+        print("Je Split: erster Validation-Tipp und erster Holdout-Tipp")
+        for split in 1...requestedSplits {
+            print("Split \(split)")
+            for modelName in ["F2", "F5"] {
+                guard let result = resultsByName[modelName]?.first(where: { $0.split == split }) else { continue }
+                print("  \(modelName) Val: \(format(ticket: result.validationTicket)) | Hold: \(format(ticket: result.holdoutTicket))")
+            }
         }
 
         print("")
@@ -189,6 +219,10 @@ final class FrequencyBaselineAnalyzer {
         aggregate.euroHits += Set(ticket.euroNumbers).intersection(target.euroNumbers).count
         aggregate.tickets += 1
         aggregate.expectedEuroHits += WeightSweepCore.expectedEuroHits(for: target.date, ticketCount: 1)
+    }
+
+    private func format(ticket: Ticket) -> String {
+        "\(ticket.numbers.map(String.init).joined(separator: ",")) + \(ticket.euroNumbers.map(String.init).joined(separator: ","))"
     }
 
     private func printRow(name: String, results: [SplitResult]) {
