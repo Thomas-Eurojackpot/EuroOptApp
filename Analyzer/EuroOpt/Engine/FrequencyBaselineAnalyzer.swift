@@ -200,7 +200,7 @@ final class FrequencyBaselineAnalyzer {
         let holdEuro = holdoutTickets > 0 ? Double(holdoutEuro) / Double(holdoutTickets) : 0
         let holdExpected = holdoutTickets > 0 ? holdoutExpectedEuro / Double(holdoutTickets) : 0
 
-        print(String(format: "%-7s   %.3f       %.3f     %+.3f      %.3f        %.3f      %+.3f",
+        print(String(format: "%-7@   %.3f       %.3f     %+.3f      %.3f        %.3f      %+.3f",
                      name,
                      valMain,
                      valEuro,
