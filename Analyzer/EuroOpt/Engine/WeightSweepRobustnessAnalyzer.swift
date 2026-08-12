@@ -103,17 +103,15 @@ final class WeightSweepRobustnessAnalyzer {
             var constrainedValidation = Aggregate()
             var constrainedHoldout = Aggregate()
 
-            // F2 → Alpha uses the Alpha profile selected from the unrestricted Validation.
-            // Alpha is only allowed to rank tickets built from the F2 frequency pool.
-            let validationTraining = Array(draws.prefix(holdoutStart))
-            let holdoutTraining = Array(draws.prefix(holdoutStart))
-            let constrainedCache = ScoreCache(draws: validationTraining)
-            let constrainedScoreEngine = ScoreEngine(cache: constrainedCache, goal: winner.goal)
-            let validationConstrainedTickets = makeConstrainedTickets(from: validationTraining, scoreEngine: constrainedScoreEngine, limit: recommendationCount)
-
+            // F2 → Alpha: the Alpha profile is selected from the unrestricted Validation.
+            // For every target, the constrained ticket is built only from draws before that target.
             for index in validationStart..<holdoutStart {
+                let trainingDraws = Array(draws.prefix(index))
                 let targetDraw = draws[index]
-                add(tickets: validationConstrainedTickets, target: targetDraw, to: &constrainedValidation)
+                let cache = ScoreCache(draws: trainingDraws)
+                let scoreEngine = ScoreEngine(cache: cache, goal: winner.goal)
+                let constrainedTickets = makeConstrainedTickets(from: trainingDraws, scoreEngine: scoreEngine, limit: recommendationCount)
+                add(tickets: constrainedTickets, target: targetDraw, to: &constrainedValidation)
             }
 
             for index in holdoutStart..<holdoutEnd {
