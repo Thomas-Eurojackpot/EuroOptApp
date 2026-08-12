@@ -21,6 +21,7 @@ struct OptimizerView: View {
                 learningSection
                 holdoutSection
                 robustnessSection
+                f2AlphaFilterSection
                 randomBenchmarkSection
                 normalDistributionSection
                 confirmationSection
@@ -37,10 +38,8 @@ struct OptimizerView: View {
             Text("🎯 Optimierer")
                 .font(.largeTitle)
                 .bold()
-
             Text("EuroOpt Alpha 7.5")
                 .font(.headline)
-
             Text("Generiert Kandidaten und bewertet daraus die besten Empfehlungen.")
                 .foregroundStyle(.secondary)
         }
@@ -55,7 +54,6 @@ struct OptimizerView: View {
                     in: 100...100_000,
                     step: 100
                 )
-
                 Stepper(
                     "Empfehlungen: \(settingsViewModel.recommendationCount)",
                     value: $settingsViewModel.recommendationCount,
@@ -75,8 +73,7 @@ struct OptimizerView: View {
                 )
             } label: {
                 if viewModel.isCalculating {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
+                    ProgressView().frame(maxWidth: .infinity)
                 } else {
                     Label("Empfehlungen berechnen", systemImage: "sparkles")
                         .frame(maxWidth: .infinity)
@@ -84,40 +81,27 @@ struct OptimizerView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(
-                viewModel.isCalculating ||
-                viewModel.isBacktestRunning ||
-                viewModel.isLearning ||
-                viewModel.isHoldoutRunning ||
-                viewModel.isRandomBenchmarkRunning ||
-                viewModel.isNormalDistributionRunning ||
-                viewModel.isConfirmationRunning ||
+                viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning ||
+                viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning ||
+                viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning ||
                 viewModel.isRobustnessRunning
             )
 
-            Button {
-                viewModel.runBacktest()
-            } label: {
+            Button { viewModel.runBacktest() } label: {
                 Label("🧪 Backtest starten", systemImage: "flask")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
             .disabled(
-                viewModel.isCalculating ||
-                viewModel.isBacktestRunning ||
-                viewModel.isLearning ||
-                viewModel.isHoldoutRunning ||
-                viewModel.isRandomBenchmarkRunning ||
-                viewModel.isNormalDistributionRunning ||
-                viewModel.isConfirmationRunning ||
+                viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning ||
+                viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning ||
+                viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning ||
                 viewModel.isRobustnessRunning
             )
 
-            Button {
-                viewModel.runHoldoutTest()
-            } label: {
+            Button { viewModel.runHoldoutTest() } label: {
                 if viewModel.isHoldoutRunning {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
+                    ProgressView().frame(maxWidth: .infinity)
                 } else {
                     Label("🧪 Holdout-Test starten", systemImage: "checkmark.shield")
                         .frame(maxWidth: .infinity)
@@ -125,13 +109,9 @@ struct OptimizerView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(
-                viewModel.isCalculating ||
-                viewModel.isBacktestRunning ||
-                viewModel.isLearning ||
-                viewModel.isHoldoutRunning ||
-                viewModel.isRandomBenchmarkRunning ||
-                viewModel.isNormalDistributionRunning ||
-                viewModel.isConfirmationRunning ||
+                viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isHoldoutRunning ||
+                viewModel.isLearning || viewModel.isRandomBenchmarkRunning ||
+                viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning ||
                 viewModel.isRobustnessRunning
             )
         }
@@ -142,20 +122,13 @@ struct OptimizerView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Walk-Forward-Lernen passt die EQI-Gewichte aus der bisherigen Historie an.")
                     .foregroundStyle(.secondary)
-
-                Text("Aktuelles Profil")
-                    .font(.subheadline)
-                    .bold()
-
+                Text("Aktuelles Profil").font(.subheadline).bold()
                 Text(viewModel.learnedProfileText)
                     .font(.system(.body, design: .monospaced))
 
-                Button {
-                    viewModel.startLearning()
-                } label: {
+                Button { viewModel.startLearning() } label: {
                     if viewModel.isLearning {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
+                        ProgressView().frame(maxWidth: .infinity)
                     } else {
                         Label("Gewichte lernen", systemImage: "brain.head.profile")
                             .frame(maxWidth: .infinity)
@@ -163,30 +136,20 @@ struct OptimizerView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
-                    viewModel.isLearning ||
-                    viewModel.isCalculating ||
-                    viewModel.isBacktestRunning ||
-                    viewModel.isHoldoutRunning ||
-                    viewModel.isRandomBenchmarkRunning ||
-                    viewModel.isNormalDistributionRunning ||
-                    viewModel.isConfirmationRunning ||
+                    viewModel.isLearning || viewModel.isCalculating || viewModel.isBacktestRunning ||
+                    viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning ||
                     viewModel.isRobustnessRunning
                 )
 
-                Button("Standardprofil wiederherstellen") {
-                    viewModel.resetLearnedWeights()
-                }
-                .buttonStyle(.bordered)
-                .disabled(
-                    viewModel.isLearning ||
-                    viewModel.isCalculating ||
-                    viewModel.isBacktestRunning ||
-                    viewModel.isHoldoutRunning ||
-                    viewModel.isRandomBenchmarkRunning ||
-                    viewModel.isNormalDistributionRunning ||
-                    viewModel.isConfirmationRunning ||
-                    viewModel.isRobustnessRunning
-                )
+                Button("Standardprofil wiederherstellen") { viewModel.resetLearnedWeights() }
+                    .buttonStyle(.bordered)
+                    .disabled(
+                        viewModel.isLearning || viewModel.isCalculating || viewModel.isBacktestRunning ||
+                        viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning ||
+                        viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning ||
+                        viewModel.isRobustnessRunning
+                    )
 
                 Text(viewModel.learningStatus)
                     .font(.footnote)
@@ -194,14 +157,9 @@ struct OptimizerView: View {
 
                 if let result = viewModel.learningResult {
                     Divider()
-
-                    Text("Letzter Lernlauf")
-                        .font(.subheadline)
-                        .bold()
-
+                    Text("Letzter Lernlauf").font(.subheadline).bold()
                     Text(String(format: "Ø Haupttreffer: %.3f   |   Ø Eurotreffer: %.3f", result.averageHits, result.averageEuroHits))
                         .font(.footnote)
-
                     Text("Getestete Ziehungen: \(result.testedDraws)   |   Profiländerungen: \(result.improvedSteps)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -216,7 +174,6 @@ struct OptimizerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Der Weight-Sweep wählt das Profil ausschließlich auf der Validation-Hälfte und prüft es anschließend unverändert auf dem unabhängigen Holdout.")
                     .foregroundStyle(.secondary)
-
                 Text(viewModel.holdoutStatus)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -230,17 +187,13 @@ struct OptimizerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Wiederholt die Validation/Holdout-Prüfung über fünf zeitlich getrennte Splits. Das Profil wird je Split ausschließlich aus der Validation gewählt und danach unverändert im Holdout geprüft.")
                     .foregroundStyle(.secondary)
-
                 Text("Der Test ist separat: Der bestehende Produktions-WeightSweepEngine und das gespeicherte Profil werden nicht verändert. A100 wird wie jedes andere Profil behandelt.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                Button {
-                    viewModel.runRobustnessAnalysis()
-                } label: {
+                Button { viewModel.runRobustnessAnalysis() } label: {
                     if viewModel.isRobustnessRunning {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
+                        ProgressView().frame(maxWidth: .infinity)
                     } else {
                         Label("Robustheitsanalyse starten", systemImage: "waveform.path.ecg")
                             .frame(maxWidth: .infinity)
@@ -248,17 +201,46 @@ struct OptimizerView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
-                    viewModel.isRobustnessRunning ||
-                    viewModel.isCalculating ||
-                    viewModel.isBacktestRunning ||
-                    viewModel.isLearning ||
-                    viewModel.isHoldoutRunning ||
-                    viewModel.isRandomBenchmarkRunning ||
-                    viewModel.isNormalDistributionRunning ||
-                    viewModel.isConfirmationRunning
+                    viewModel.isRobustnessRunning || viewModel.isCalculating || viewModel.isBacktestRunning ||
+                    viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning
                 )
 
                 Text(viewModel.robustnessStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var f2AlphaFilterSection: some View {
+        GroupBox("🛡️ F2/50 → Alpha Kontrollfilter") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("F2/50 bleibt immer die Basis. Alpha darf den F2-Tipp nur ersetzen, wenn der Alpha-Vorteil auf der Validation mindestens die geprüfte Schwelle erreicht.")
+                    .foregroundStyle(.secondary)
+
+                Text("Geprüfte Schwellen: 0,00 / 0,02 / 0,04 / 0,06 / 0,08 / 0,10 Δ. Der Holdout wird erst nach der jeweiligen Entscheidung ausgewertet.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Button { viewModel.runF2AlphaFilterAnalysis() } label: {
+                    if viewModel.isF2AlphaFilterRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("F2/50 → Alpha Filter testen", systemImage: "shield.checkered")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isF2AlphaFilterRunning || viewModel.isCalculating || viewModel.isBacktestRunning ||
+                    viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning
+                )
+
+                Text(viewModel.f2AlphaFilterStatus)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -271,17 +253,13 @@ struct OptimizerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Vergleicht den Holdout mit echten, empirisch erzeugten Zufallstipps – ohne EQI, Gewichte oder historische Auswahlkriterien.")
                     .foregroundStyle(.secondary)
-
                 Text("Kandidatenanzahl, Tippanzahl, Hauptzahl-Validierung und Diversitätsregel entsprechen dem Holdout-Test. Die Eurozahlen berücksichtigen das historische 10/12-Format.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                Button {
-                    viewModel.runRandomBenchmark()
-                } label: {
+                Button { viewModel.runRandomBenchmark() } label: {
                     if viewModel.isRandomBenchmarkRunning {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
+                        ProgressView().frame(maxWidth: .infinity)
                     } else {
                         Label("Zufallsbenchmark starten", systemImage: "dice")
                             .frame(maxWidth: .infinity)
@@ -289,14 +267,9 @@ struct OptimizerView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
-                    viewModel.isRandomBenchmarkRunning ||
-                    viewModel.isCalculating ||
-                    viewModel.isBacktestRunning ||
-                    viewModel.isLearning ||
-                    viewModel.isHoldoutRunning ||
-                    viewModel.isNormalDistributionRunning ||
-                    viewModel.isConfirmationRunning ||
-                    viewModel.isRobustnessRunning
+                    viewModel.isRandomBenchmarkRunning || viewModel.isCalculating || viewModel.isBacktestRunning ||
+                    viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || viewModel.isF2AlphaFilterRunning
                 )
 
                 Text(viewModel.randomBenchmarkStatus)
@@ -312,17 +285,13 @@ struct OptimizerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Prüft separat, ob die Summe der 5 Hauptzahlen als annähernd normalverteilte Größe für die Tippauswahl einen messbaren Effekt liefert.")
                     .foregroundStyle(.secondary)
-
                 Text("Feste theoretische Verteilung: Mittelwert 127,5 und Standardabweichung 30,923. Keine Gewichte, kein EQI und keine Anpassung an den Holdout.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                Button {
-                    viewModel.runNormalDistributionTest()
-                } label: {
+                Button { viewModel.runNormalDistributionTest() } label: {
                     if viewModel.isNormalDistributionRunning {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
+                        ProgressView().frame(maxWidth: .infinity)
                     } else {
                         Label("Normalverteilungstest starten", systemImage: "chart.line.uptrend.xyaxis")
                             .frame(maxWidth: .infinity)
@@ -330,14 +299,10 @@ struct OptimizerView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
-                    viewModel.isNormalDistributionRunning ||
-                    viewModel.isRandomBenchmarkRunning ||
-                    viewModel.isCalculating ||
-                    viewModel.isBacktestRunning ||
-                    viewModel.isLearning ||
-                    viewModel.isHoldoutRunning ||
-                    viewModel.isConfirmationRunning ||
-                    viewModel.isRobustnessRunning
+                    viewModel.isNormalDistributionRunning || viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning ||
+                    viewModel.isHoldoutRunning || viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning || viewModel.isF2AlphaFilterRunning
                 )
 
                 Text(viewModel.normalDistributionStatus)
@@ -353,17 +318,13 @@ struct OptimizerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Prüft das bereits festgelegte Profil G/U 100 % erneut auf den letzten 100 Ziehungen. Es werden keine Gewichte optimiert oder verändert.")
                     .foregroundStyle(.secondary)
-
                 Text("Hinweis: Die letzten 100 Ziehungen waren bereits Teil des bisherigen Holdouts. Deshalb ist dies eine Bestätigungsscheibe und kein statistisch unabhängiges zweites Experiment.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                Button {
-                    viewModel.runGUConfirmation()
-                } label: {
+                Button { viewModel.runGUConfirmation() } label: {
                     if viewModel.isConfirmationRunning {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
+                        ProgressView().frame(maxWidth: .infinity)
                     } else {
                         Label("G/U-Bestätigung starten", systemImage: "scope")
                             .frame(maxWidth: .infinity)
@@ -371,14 +332,10 @@ struct OptimizerView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(
-                    viewModel.isConfirmationRunning ||
-                    viewModel.isCalculating ||
-                    viewModel.isBacktestRunning ||
-                    viewModel.isLearning ||
-                    viewModel.isHoldoutRunning ||
-                    viewModel.isRandomBenchmarkRunning ||
-                    viewModel.isNormalDistributionRunning ||
-                    viewModel.isRobustnessRunning
+                    viewModel.isConfirmationRunning || viewModel.isCalculating || viewModel.isBacktestRunning ||
+                    viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning || viewModel.isRobustnessRunning ||
+                    viewModel.isF2AlphaFilterRunning
                 )
 
                 Text(viewModel.confirmationStatus)
@@ -399,34 +356,22 @@ struct OptimizerView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(Array(viewModel.reports.enumerated()), id: \.offset) { index, report in
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("\(index + 1). Empfehlung")
-                                .font(.headline)
-
+                            Text("\(index + 1). Empfehlung").font(.headline)
                             Text(report.ticket.numbers.map(String.init).joined(separator: " • "))
                                 .font(.title3)
-
                             Text("Eurozahlen: " + report.ticket.euroNumbers.map(String.init).joined(separator: " • "))
                                 .foregroundStyle(.secondary)
-
                             Text("EQI: \(String(format: "%.1f", report.eqi.value).replacingOccurrences(of: ".", with: ","))")
                                 .font(.subheadline)
-
                             if !report.recommendation.isEmpty {
                                 Text(report.recommendation)
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }
                         }
-
-                        if index < viewModel.reports.count - 1 {
-                            Divider()
-                        }
+                        if index < viewModel.reports.count - 1 { Divider() }
                     }
-
-                    ShareLink(
-                        item: viewModel.shareText,
-                        preview: SharePreview("EuroOpt Empfehlungen")
-                    ) {
+                    ShareLink(item: viewModel.shareText, preview: SharePreview("EuroOpt Empfehlungen")) {
                         Label("Empfehlungen teilen", systemImage: "square.and.arrow.up")
                     }
                 }
@@ -438,9 +383,7 @@ struct OptimizerView: View {
     private var backtestSection: some View {
         GroupBox("Backtest") {
             VStack(alignment: .leading, spacing: 10) {
-                Text(viewModel.backtestStatus)
-                    .foregroundStyle(.secondary)
-
+                Text(viewModel.backtestStatus).foregroundStyle(.secondary)
                 if viewModel.isBacktestRunning || viewModel.backtestProgress > 0 {
                     ProgressView(value: viewModel.backtestProgress)
                 }
