@@ -2,7 +2,7 @@
 //  FrequencyBaselineAnalyzer.swift
 //  EuroOpt
 //
-//  Alpha 7.5 - simple frequency baselines
+//  Alpha 7.5 - simple frequency baselines and window sweep
 //
 //  F1: entire training history.
 //  F2: last 50 training draws.
@@ -10,6 +10,7 @@
 //  F4: last 200 training draws.
 //  F5: last 400 training draws.
 //  F6: combined rank of 50- and 400-draw frequencies.
+//  Sweep: 25, 50, 75, 100, 150, 200, 300, 400 draws.
 //  Tie-break: smaller number first.
 //  Validation and holdout use only information available before each target draw.
 //
@@ -38,15 +39,17 @@ final class FrequencyBaselineAnalyzer {
         let holdoutTicket: Ticket
     }
 
+    private struct SweepResult {
+        let window: Int
+        let validationScore: Double
+        let holdoutScore: Double
+    }
+
     private let warmup = WeightSweepCore.warmup
     private let windows: [(name: String, size: Int)] = [
-        ("F1", 0),
-        ("F2", 50),
-        ("F3", 100),
-        ("F4", 200),
-        ("F5", 400),
-        ("F6", -1)
+        ("F1", 0), ("F2", 50), ("F3", 100), ("F4", 200), ("F5", 400), ("F6", -1)
     ]
+    private let sweepWindows = [25, 50, 75, 100, 150, 200, 300, 400]
 
     func run(draws: [EuroJackpotDraw], splitCount: Int = 5) {
         guard draws.count > warmup + 20 else {
@@ -146,55 +149,112 @@ final class FrequencyBaselineAnalyzer {
         print("Modell    Val Haupt   Val Euro   Val Δ      Hold Haupt   Hold Euro   Hold Δ")
         for model in windows { printRow(name: model.name, results: resultsByName[model.name] ?? []) }
 
+        runWindowSweep(draws: draws, splitCount: requestedSplits)
+
         print("")
         print("F1-F6 sind reine Kontrollmodelle: keine Gewichtung, keine Optimierung, keine Holdout-Information bei der Tippbildung.")
-        print("F6 bildet den gemeinsamen Rang aus der 50er- und 400er-Häufigkeit, jeweils ohne Zukunftsdaten.")
+        print("Der Fenster-Sweep prüft feste, vorab definierte Fenster und wählt kein Fenster anhand des Holdouts aus.")
         print("Die Euro-Basis wird historisch korrekt über das Datum des jeweiligen Ziel-Los berücksichtigt.")
         print(String(format: "⏱ Frequenz-Fenstervergleich: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
     }
 
+    private func runWindowSweep(draws: [EuroJackpotDraw], splitCount: Int) {
+        var sweepResults: [SweepResult] = []
+        let totalTests = draws.count - warmup
+        let availableWindow = totalTests / splitCount
+
+        for window in sweepWindows {
+            var validationTotal = 0.0
+            var holdoutTotal = 0.0
+            var splitCountUsed = 0
+
+            for split in 0..<splitCount {
+                let validationStart = warmup + split * availableWindow
+                let splitEnd = split == splitCount - 1 ? draws.count : min(draws.count, warmup + (split + 1) * availableWindow)
+                let splitSize = splitEnd - validationStart
+                guard splitSize >= 2 else { continue }
+
+                let validationSize = splitSize / 2
+                let holdoutStart = validationStart + validationSize
+                var validation = Aggregate()
+                var holdout = Aggregate()
+
+                for index in validationStart..<holdoutStart {
+                    let target = draws[index]
+                    let ticket = makeFrequencyTicket(from: Array(draws.prefix(index)), window: window)
+                    add(ticket: ticket, target: target, to: &validation)
+                }
+                for index in holdoutStart..<splitEnd {
+                    let target = draws[index]
+                    let ticket = makeFrequencyTicket(from: Array(draws.prefix(index)), window: window)
+                    add(ticket: ticket, target: target, to: &holdout)
+                }
+
+                validationTotal += validation.score
+                holdoutTotal += holdout.score
+                splitCountUsed += 1
+            }
+
+            if splitCountUsed > 0 {
+                sweepResults.append(SweepResult(window: window, validationScore: validationTotal / Double(splitCountUsed), holdoutScore: holdoutTotal / Double(splitCountUsed)))
+            }
+        }
+
+        print("")
+        print("-----------------------------------")
+        print("FREQUENZ-FENSTER-SWEEP")
+        print("-----------------------------------")
+        print("Fenster   Val Δ      Hold Δ")
+        for result in sweepResults {
+            print(String(format: "%4d     %+.3f      %+.3f", result.window, result.validationScore, result.holdoutScore))
+        }
+
+        let sortedByHoldout = sweepResults.sorted {
+            if $0.holdoutScore == $1.holdoutScore { return $0.window < $1.window }
+            return $0.holdoutScore > $1.holdoutScore
+        }
+        print("")
+        print("Top nach Holdout:")
+        for result in sortedByHoldout.prefix(3) {
+            print(String(format: "  %d Ziehungen: Hold Δ %+.3f | Val Δ %+.3f", result.window, result.holdoutScore, result.validationScore))
+        }
+    }
+
     private func makeTicket(from draws: [EuroJackpotDraw], model: (name: String, size: Int)) -> Ticket {
         if model.name == "F6" { return makeCombinedTicket(from: draws) }
+        return makeFrequencyTicket(from: draws, window: model.size)
+    }
 
-        let source = model.size > 0 ? Array(draws.suffix(model.size)) : draws
+    private func makeFrequencyTicket(from draws: [EuroJackpotDraw], window: Int) -> Ticket {
+        let source = window > 0 ? Array(draws.suffix(window)) : draws
         let mainCounts = frequencyCounts(draws: source, keyPath: \.numbers)
         let euroCounts = frequencyCounts(draws: source, keyPath: \.euroNumbers)
         return makeTicket(mainCounts: mainCounts, euroCounts: euroCounts)
     }
 
     private func makeCombinedTicket(from draws: [EuroJackpotDraw]) -> Ticket {
-        let shortSource = Array(draws.suffix(50))
-        let longSource = Array(draws.suffix(400))
-        let shortMain = frequencyCounts(draws: shortSource, keyPath: \.numbers)
-        let longMain = frequencyCounts(draws: longSource, keyPath: \.numbers)
-        let shortEuro = frequencyCounts(draws: shortSource, keyPath: \.euroNumbers)
-        let longEuro = frequencyCounts(draws: longSource, keyPath: \.euroNumbers)
-
-        let mainRanks = combinedRanks(values: 1...50, shortCounts: shortMain, longCounts: longMain)
-        let euroRanks = combinedRanks(values: 1...12, shortCounts: shortEuro, longCounts: longEuro)
-
-        let numbers = mainRanks.prefix(5).map { $0 }.sorted()
-        let euroNumbers = euroRanks.prefix(2).map { $0 }.sorted()
-        return Ticket(numbers: numbers, euroNumbers: euroNumbers)
+        let shortMain = frequencyCounts(draws: Array(draws.suffix(50)), keyPath: \.numbers)
+        let longMain = frequencyCounts(draws: Array(draws.suffix(400)), keyPath: \.numbers)
+        let shortEuro = frequencyCounts(draws: Array(draws.suffix(50)), keyPath: \.euroNumbers)
+        let longEuro = frequencyCounts(draws: Array(draws.suffix(400)), keyPath: \.euroNumbers)
+        let numbers = combinedRanks(values: 1...50, shortCounts: shortMain, longCounts: longMain).prefix(5).sorted()
+        let euroNumbers = combinedRanks(values: 1...12, shortCounts: shortEuro, longCounts: longEuro).prefix(2).sorted()
+        return Ticket(numbers: Array(numbers), euroNumbers: Array(euroNumbers))
     }
 
     private func combinedRanks(values: ClosedRange<Int>, shortCounts: [Int: Int], longCounts: [Int: Int]) -> [Int] {
         let shortOrder = values.sorted { lhs, rhs in
-            let left = shortCounts[lhs, default: 0]
-            let right = shortCounts[rhs, default: 0]
+            let left = shortCounts[lhs, default: 0], right = shortCounts[rhs, default: 0]
             return left == right ? lhs < rhs : left > right
         }
         let longOrder = values.sorted { lhs, rhs in
-            let left = longCounts[lhs, default: 0]
-            let right = longCounts[rhs, default: 0]
+            let left = longCounts[lhs, default: 0], right = longCounts[rhs, default: 0]
             return left == right ? lhs < rhs : left > right
         }
-        var shortRank: [Int: Int] = [:]
-        var longRank: [Int: Int] = [:]
+        var shortRank: [Int: Int] = [:], longRank: [Int: Int] = [:]
         for (index, value) in shortOrder.enumerated() { shortRank[value] = index + 1 }
         for (index, value) in longOrder.enumerated() { longRank[value] = index + 1 }
-
         return values.sorted { lhs, rhs in
             let left = shortRank[lhs, default: Int.max] + longRank[lhs, default: Int.max]
             let right = shortRank[rhs, default: Int.max] + longRank[rhs, default: Int.max]
@@ -204,17 +264,13 @@ final class FrequencyBaselineAnalyzer {
 
     private func makeTicket(mainCounts: [Int: Int], euroCounts: [Int: Int]) -> Ticket {
         let numbers = (1...50).sorted { lhs, rhs in
-            let left = mainCounts[lhs, default: 0]
-            let right = mainCounts[rhs, default: 0]
+            let left = mainCounts[lhs, default: 0], right = mainCounts[rhs, default: 0]
             return left == right ? lhs < rhs : left > right
         }.prefix(5).sorted()
-
         let euroNumbers = (1...12).sorted { lhs, rhs in
-            let left = euroCounts[lhs, default: 0]
-            let right = euroCounts[rhs, default: 0]
+            let left = euroCounts[lhs, default: 0], right = euroCounts[rhs, default: 0]
             return left == right ? lhs < rhs : left > right
         }.prefix(2).sorted()
-
         return Ticket(numbers: Array(numbers), euroNumbers: Array(euroNumbers))
     }
 
