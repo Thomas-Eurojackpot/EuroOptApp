@@ -210,6 +210,8 @@ final class WeightSweepRobustnessAnalyzer {
         print("A100 wird wie jedes andere Profil behandelt.")
         print("Der Produktions-WeightSweepEngine wurde in diesem Schritt nicht verändert.")
         print("")
+        FrequencyBaselineAnalyzer().run(draws: draws, splitCount: requestedSplits)
+        print("")
         print(String(format: "⏱ Robustheits-Analyse: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
     }
