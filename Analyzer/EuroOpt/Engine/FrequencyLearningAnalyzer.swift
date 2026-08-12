@@ -105,9 +105,9 @@ final class FrequencyLearningAnalyzer {
                 }
             }
 
-            guard let winner = validationByVariant.indices.max(by: {
+            guard validationByVariant.indices.max(by: {
                 validationByVariant[$0].score < validationByVariant[$1].score
-            }) else { continue }
+            }) != nil else { continue }
 
             for index in validationEnd..<splitEnd {
                 let training = Array(draws.prefix(index))
@@ -131,12 +131,14 @@ final class FrequencyLearningAnalyzer {
                 )
             )
 
-            let winnerName = variants[winner].name
+            let winnerIndex = validationByVariant.indices.max(by: {
+                validationByVariant[$0].score < validationByVariant[$1].score
+            })!
             print(String(format: "Split %2d | Gewinner Validation: %@ | Val Δ %+.3f | Hold Δ %+.3f",
                          split + 1,
-                         winnerName,
-                         validationByVariant[winner].score,
-                         holdoutByVariant[winner].score))
+                         variants[winnerIndex].name,
+                         validationByVariant[winnerIndex].score,
+                         holdoutByVariant[winnerIndex].score))
         }
 
         print("")
@@ -149,7 +151,7 @@ final class FrequencyLearningAnalyzer {
             let positive = splitResults.reduce(0) { partial, split in
                 partial + (split.holdout[index] > 0 ? 1 : 0)
             }
-            print(String(format: "%-28s | %+.3f | %+.3f | %d/%d",
+            print(String(format: "%@ | %+.3f | %+.3f | %d/%d",
                          variants[index].name,
                          validationTotals[index].score,
                          holdoutTotals[index].score,
@@ -162,18 +164,14 @@ final class FrequencyLearningAnalyzer {
         print("BESTE VARIANTE JE SPLIT")
         print("===================================")
         var winnerCounts = Array(repeating: 0, count: variants.count)
-        var winnerHoldout = Array(repeating: Aggregate(), count: variants.count)
+        var winnerHoldout = Array(repeating: 0.0, count: variants.count)
 
         for split in splitResults {
             guard let winner = split.validation.indices.max(by: {
                 split.validation[$0] < split.validation[$1]
             }) else { continue }
             winnerCounts[winner] += 1
-            var aggregate = Aggregate()
-            aggregate.tickets = 1
-            // Der Splitwert ist bereits ein normalisierter Score; für die
-            // Übersicht genügt die direkte Addition in einer separaten Summe.
-            winnerHoldout[winner].expectedEuroHits += split.holdout[winner]
+            winnerHoldout[winner] += split.holdout[winner]
         }
 
         for index in variants.indices where winnerCounts[index] > 0 {
@@ -181,7 +179,7 @@ final class FrequencyLearningAnalyzer {
                          variants[index].name,
                          winnerCounts[index],
                          splitResults.count,
-                         winnerHoldout[index].expectedEuroHits))
+                         winnerHoldout[index]))
         }
 
         print("")
