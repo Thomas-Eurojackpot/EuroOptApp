@@ -5,6 +5,9 @@ import Foundation
 /// F2/50 always produces the baseline ticket. Alpha may replace that ticket only
 /// when its validation score exceeds F2 by at least the configured threshold.
 /// Holdout data is never used for the decision.
+///
+/// The analyzer also evaluates a large random-ticket baseline on the same holdout
+/// observations. This provides a direct empirical comparison against random play.
 final class F2AlphaFilterAnalyzer {
     private struct Aggregate {
         var hits = 0
@@ -18,6 +21,16 @@ final class F2AlphaFilterAnalyzer {
             let euro = Double(euroHits) / Double(tickets)
             let expected = expectedEuroHits / Double(tickets)
             return (main - 0.50) + (euro - expected)
+        }
+
+        var mainRate: Double {
+            guard tickets > 0 else { return 0 }
+            return Double(hits) / Double(tickets)
+        }
+
+        var euroRate: Double {
+            guard tickets > 0 else { return 0 }
+            return Double(euroHits) / Double(tickets)
         }
 
         mutating func add(tickets: [Ticket], target: EuroJackpotDraw) {
@@ -44,11 +57,15 @@ final class F2AlphaFilterAnalyzer {
         let f2Validation: Aggregate
         let alphaHoldout: Aggregate
         let f2Holdout: Aggregate
+        let randomHoldout: Aggregate
     }
 
     private let warmup = WeightSweepCore.warmup
     private let frequencyWindow = 50
     private let thresholds: [Double] = [0.00, 0.02, 0.04, 0.06, 0.08, 0.10]
+
+    // Large Monte-Carlo comparison: random tickets per holdout draw.
+    private let randomTicketsPerDraw = 1_000
 
     func run(draws: [EuroJackpotDraw], recommendationCount: Int, splitCount: Int = 10) {
         guard draws.count > warmup + 20 else {
@@ -75,6 +92,7 @@ final class F2AlphaFilterAnalyzer {
         print("Alpha               : Profilwahl ausschließlich aus Validation")
         print("Filter              : Alpha darf F2 nur ab Validation-Δ-Schwelle ersetzen")
         print("Schwellen           : \(thresholds.map { String(format: "%+.2f", $0) }.joined(separator: " / "))")
+        print("Zufall              : \(randomTicketsPerDraw) Vergleichstipps je Holdout-Ziehung")
         print("Holdout             : erst nach der Entscheidung")
         print("")
 
@@ -124,6 +142,7 @@ final class F2AlphaFilterAnalyzer {
             let winner = profiles[winnerIndex]
             var alphaHoldout = Aggregate()
             var f2Holdout = Aggregate()
+            var randomHoldout = Aggregate()
 
             for index in validationEnd..<splitEnd {
                 let trainingDraws = Array(draws.prefix(index))
@@ -142,9 +161,11 @@ final class F2AlphaFilterAnalyzer {
                     limit: recommendationCount
                 )
                 let f2Tickets = [makeF2Ticket(from: trainingDraws)]
+                let randomTickets = makeRandomTickets(count: randomTicketsPerDraw)
 
                 alphaHoldout.add(tickets: alphaTickets, target: target)
                 f2Holdout.add(tickets: f2Tickets, target: target)
+                randomHoldout.add(tickets: randomTickets, target: target)
             }
 
             results.append(
@@ -154,22 +175,24 @@ final class F2AlphaFilterAnalyzer {
                     alphaValidation: alphaValidationByProfile[winnerIndex],
                     f2Validation: f2Validation,
                     alphaHoldout: alphaHoldout,
-                    f2Holdout: f2Holdout
+                    f2Holdout: f2Holdout,
+                    randomHoldout: randomHoldout
                 )
             )
         }
 
         print("SPLIT-ERGEBNISSE")
         print("-----------------------------------")
-        print("Split | Alpha Profil | Alpha Val Δ | F2 Val Δ | Alpha Hold Δ | F2 Hold Δ")
+        print("Split | Alpha Profil | Alpha Val Δ | F2 Val Δ | Alpha Hold Δ | F2 Hold Δ | Zufall Hold Δ")
         for result in results {
-            print(String(format: "%2d    | P%02d          | %+.3f      | %+.3f    | %+.3f       | %+.3f",
+            print(String(format: "%2d    | P%02d          | %+.3f      | %+.3f    | %+.3f       | %+.3f       | %+.3f",
                          result.split,
                          result.alphaProfile.id,
                          result.alphaValidation.score,
                          result.f2Validation.score,
                          result.alphaHoldout.score,
-                         result.f2Holdout.score))
+                         result.f2Holdout.score,
+                         result.randomHoldout.score))
         }
 
         print("")
@@ -204,12 +227,42 @@ final class F2AlphaFilterAnalyzer {
                          results.count))
         }
 
+        var totalF2 = Aggregate()
+        var totalRandom = Aggregate()
+        var randomBetterSplits = 0
+        var f2BetterSplits = 0
+
+        for result in results {
+            totalF2.merge(result.f2Holdout)
+            totalRandom.merge(result.randomHoldout)
+            if result.f2Holdout.score > result.randomHoldout.score {
+                f2BetterSplits += 1
+            } else if result.randomHoldout.score > result.f2Holdout.score {
+                randomBetterSplits += 1
+            }
+        }
+
+        print("")
+        print("===================================")
+        print("F2/50 vs. GROSSER ZUFALLSVERGLEICH")
+        print("===================================")
+        print("Zufallstipps je Holdout-Ziehung : \(randomTicketsPerDraw)")
+        print("F2 Hold Haupttreffer            : \(String(format: "%.3f", totalF2.mainRate))")
+        print("Zufall Hold Haupttreffer        : \(String(format: "%.3f", totalRandom.mainRate))")
+        print("F2 Hold Eurotreffer             : \(String(format: "%.3f", totalF2.euroRate))")
+        print("Zufall Hold Eurotreffer         : \(String(format: "%.3f", totalRandom.euroRate))")
+        print("F2 Hold Δ                       : \(String(format: "%+.3f", totalF2.score))")
+        print("Zufall Hold Δ                   : \(String(format: "%+.3f", totalRandom.score))")
+        print("F2 − Zufall Δ                   : \(String(format: "%+.3f", totalF2.score - totalRandom.score))")
+        print("F2 besser in Splits             : \(f2BetterSplits)/\(results.count)")
+        print("Zufall besser in Splits         : \(randomBetterSplits)/\(results.count)")
         print("")
         print("Interpretation:")
         print("F2/50 ist immer die Basis.")
         print("Alpha ersetzt F2 nur dann, wenn Alpha auf der Validation mindestens die jeweilige Schwelle besser ist.")
-        print("Der Holdout wird erst nach dieser Entscheidung ausgewertet.")
+        print("Der Holdout wird erst nach der Entscheidung ausgewertet.")
         print("Die Schwelle wird nicht anhand des Holdouts ausgewählt.")
+        print("Der Zufallsvergleich verwendet pro Holdout-Ziehung viele unabhängig gezogene 5+2-Tipps.")
         print("")
         print(String(format: "⏱ F2/50 → Alpha Filter: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
@@ -220,6 +273,27 @@ final class F2AlphaFilterAnalyzer {
         let main = rankedNumbers(in: source, range: 1...50, limit: 5, isEuro: false)
         let euro = rankedNumbers(in: source, range: 1...12, limit: 2, isEuro: true)
         return Ticket(numbers: main.sorted(), euroNumbers: euro.sorted())
+    }
+
+    private func makeRandomTickets(count: Int) -> [Ticket] {
+        guard count > 0 else { return [] }
+        var tickets: [Ticket] = []
+        tickets.reserveCapacity(count)
+
+        for _ in 0..<count {
+            var main = Array(1...50).shuffled()
+            var euro = Array(1...12).shuffled()
+            main.removeLast(main.count - 5)
+            euro.removeLast(euro.count - 2)
+            tickets.append(
+                Ticket(
+                    numbers: main.sorted(),
+                    euroNumbers: euro.sorted()
+                )
+            )
+        }
+
+        return tickets
     }
 
     private func rankedNumbers(in draws: [EuroJackpotDraw], range: ClosedRange<Int>, limit: Int, isEuro: Bool) -> [Int] {
