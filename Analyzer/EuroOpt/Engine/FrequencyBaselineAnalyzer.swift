@@ -2,10 +2,13 @@
 //  FrequencyBaselineAnalyzer.swift
 //  EuroOpt
 //
-//  Alpha 7.5 - simple frequency baselines F1/F2
+//  Alpha 7.5 - simple frequency baselines F1/F2/F3/F4/F5
 //
 //  F1: entire training history.
-//  F2: last 100 training draws.
+//  F2: last 50 training draws.
+//  F3: last 100 training draws.
+//  F4: last 200 training draws.
+//  F5: last 400 training draws.
 //  Tie-break: smaller number first.
 //  Validation and holdout use only information available before each target draw.
 //
@@ -44,7 +47,7 @@ final class FrequencyBaselineAnalyzer {
     }
 
     private let warmup = WeightSweepCore.warmup
-    private let recentWindow = 100
+    private let windows = [50, 100, 200, 400]
 
     func run(draws: [EuroJackpotDraw], splitCount: Int = 5) {
         guard draws.count > warmup + 20 else {
@@ -56,74 +59,71 @@ final class FrequencyBaselineAnalyzer {
         let totalTests = draws.count - warmup
         let requestedSplits = max(1, splitCount)
         let availableWindow = totalTests / requestedSplits
-        var f1Results: [SplitResult] = []
-        var f2Results: [SplitResult] = []
+        var resultsByWindow: [Int: [SplitResult]] = [:]
 
         print("")
         print("===================================")
-        print("📊 F1 / F2 FREQUENZ-BASIS")
+        print("📊 FREQUENZ-BASIS: FENSTER-VERGLEICH")
         print("===================================")
         print("Warm-up             : \(warmup)")
         print("Splits              : \(requestedSplits)")
         print("F1                  : gesamte Trainingshistorie")
-        print("F2                  : letzte \(recentWindow) Trainingsziehungen")
+        print("F2                  : letzte 50 Trainingsziehungen")
+        print("F3                  : letzte 100 Trainingsziehungen")
+        print("F4                  : letzte 200 Trainingsziehungen")
+        print("F5                  : letzte 400 Trainingsziehungen")
         print("Tie-Break           : kleinere Zahl zuerst")
         print("Profilwahl          : keine")
         print("Holdout             : erst nach der jeweiligen Auswahl")
         print("")
 
-        for split in 0..<requestedSplits {
-            let validationStart = warmup + split * availableWindow
-            let splitEnd = split == requestedSplits - 1
-                ? draws.count
-                : min(draws.count, warmup + (split + 1) * availableWindow)
-            let splitSize = splitEnd - validationStart
-            guard splitSize >= 2 else { continue }
+        for window in windows {
+            var splitResults: [SplitResult] = []
 
-            let validationSize = splitSize / 2
-            let holdoutStart = validationStart + validationSize
+            for split in 0..<requestedSplits {
+                let validationStart = warmup + split * availableWindow
+                let splitEnd = split == requestedSplits - 1
+                    ? draws.count
+                    : min(draws.count, warmup + (split + 1) * availableWindow)
+                let splitSize = splitEnd - validationStart
+                guard splitSize >= 2 else { continue }
 
-            var f1Validation = Aggregate()
-            var f2Validation = Aggregate()
-            var f1Holdout = Aggregate()
-            var f2Holdout = Aggregate()
+                let validationSize = splitSize / 2
+                let holdoutStart = validationStart + validationSize
+                var validation = Aggregate()
+                var holdout = Aggregate()
 
-            for index in validationStart..<holdoutStart {
-                let trainingDraws = Array(draws.prefix(index))
-                let target = draws[index]
-                let f1 = makeTicket(from: trainingDraws)
-                let f2 = makeTicket(from: Array(trainingDraws.suffix(recentWindow)))
+                for index in validationStart..<holdoutStart {
+                    let trainingDraws = Array(draws.prefix(index))
+                    let target = draws[index]
+                    let ticket = makeTicket(from: trainingDraws, window: window)
+                    add(ticket: ticket, target: target, to: &validation)
+                }
 
-                add(ticket: f1, target: target, to: &f1Validation)
-                add(ticket: f2, target: target, to: &f2Validation)
+                for index in holdoutStart..<splitEnd {
+                    let trainingDraws = Array(draws.prefix(index))
+                    let target = draws[index]
+                    let ticket = makeTicket(from: trainingDraws, window: window)
+                    add(ticket: ticket, target: target, to: &holdout)
+                }
+
+                splitResults.append(SplitResult(split: split + 1, validation: validation, holdout: holdout))
             }
 
-            for index in holdoutStart..<splitEnd {
-                let trainingDraws = Array(draws.prefix(index))
-                let target = draws[index]
-                let f1 = makeTicket(from: trainingDraws)
-                let f2 = makeTicket(from: Array(trainingDraws.suffix(recentWindow)))
-
-                add(ticket: f1, target: target, to: &f1Holdout)
-                add(ticket: f2, target: target, to: &f2Holdout)
-            }
-
-            f1Results.append(SplitResult(split: split + 1, validation: f1Validation, holdout: f1Holdout))
-            f2Results.append(SplitResult(split: split + 1, validation: f2Validation, holdout: f2Holdout))
+            resultsByWindow[window] = splitResults
         }
 
         print("-----------------------------------")
         print("SPLIT-ERGEBNISSE")
         print("-----------------------------------")
-        for index in 0..<min(f1Results.count, f2Results.count) {
-            let f1 = f1Results[index]
-            let f2 = f2Results[index]
-            print(String(format: "Split %d | F1  Val %+.3f  Hold %+.3f | F2  Val %+.3f  Hold %+.3f",
-                         f1.split,
-                         f1.validation.score,
-                         f1.holdout.score,
-                         f2.validation.score,
-                         f2.holdout.score))
+        for split in 1...requestedSplits {
+            let values = windows.map { window -> String in
+                guard let result = resultsByWindow[window]?.first(where: { $0.split == split }) else {
+                    return "F\(window): n/a"
+                }
+                return String(format: "F%d Val %+.3f Hold %+.3f", window == 50 ? 2 : window == 100 ? 3 : window == 200 ? 4 : 5, result.validation.score, result.holdout.score)
+            }
+            print("Split \(split) | " + values.joined(separator: " | "))
         }
 
         print("")
@@ -131,19 +131,23 @@ final class FrequencyBaselineAnalyzer {
         print("GESAMTVERGLEICH")
         print("-----------------------------------")
         print("Modell    Val Haupt   Val Euro   Val Δ      Hold Haupt   Hold Euro   Hold Δ")
-        printRow(name: "F1", results: f1Results)
-        printRow(name: "F2", results: f2Results)
+        printRow(name: "F1", results: resultsByWindow[50] ?? [])
+        printRow(name: "F2", results: resultsByWindow[50] ?? [])
+        printRow(name: "F3", results: resultsByWindow[100] ?? [])
+        printRow(name: "F4", results: resultsByWindow[200] ?? [])
+        printRow(name: "F5", results: resultsByWindow[400] ?? [])
 
         print("")
-        print("F1/F2 sind reine Kontrollmodelle: keine Gewichtung, keine Optimierung, keine Holdout-Information bei der Tippbildung.")
+        print("F1/F2/F3/F4/F5 sind reine Kontrollmodelle: keine Gewichtung, keine Optimierung, keine Holdout-Information bei der Tippbildung.")
         print("Die Euro-Basis wird historisch korrekt über das Datum des jeweiligen Ziel-Los berücksichtigt.")
-        print(String(format: "⏱ Frequenz-Baselines: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print(String(format: "⏱ Frequenz-Fenstervergleich: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
     }
 
-    private func makeTicket(from draws: [EuroJackpotDraw]) -> Ticket {
-        let mainCounts = frequencyCounts(draws: draws, keyPath: \.numbers)
-        let euroCounts = frequencyCounts(draws: draws, keyPath: \.euroNumbers)
+    private func makeTicket(from draws: [EuroJackpotDraw], window: Int) -> Ticket {
+        let source = Array(draws.suffix(window))
+        let mainCounts = frequencyCounts(draws: source, keyPath: \.numbers)
+        let euroCounts = frequencyCounts(draws: source, keyPath: \.euroNumbers)
 
         let numbers = (1...50)
             .sorted { lhs, rhs in
