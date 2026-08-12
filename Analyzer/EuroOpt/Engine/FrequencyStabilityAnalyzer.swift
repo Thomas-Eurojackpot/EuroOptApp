@@ -2,7 +2,7 @@
 //  FrequencyStabilityAnalyzer.swift
 //  EuroOpt
 //
-//  Stability check for the fixed F2 / 50-draw frequency baseline.
+//  Historical stability comparison for fixed frequency windows.
 //  Uses separated historical blocks and fresh validation/holdout halves.
 //
 
@@ -25,95 +25,119 @@ final class FrequencyStabilityAnalyzer {
         }
     }
 
-    private struct PeriodResult {
-        let name: String
+    private struct WindowResult {
+        let window: Int
         let validation: Double
         let holdout: Double
-        let validationTickets: Int
-        let holdoutTickets: Int
+        let positiveHoldouts: Int
     }
 
     private let warmup = WeightSweepCore.warmup
-    private let frequencyWindow = 50
     private let periodCount = 5
+    private let frequencyWindows = [25, 50, 75, 100, 150]
 
     func run(draws: [EuroJackpotDraw]) {
         guard draws.count > warmup + 100 else {
-            print("❌ F2/50-Stabilität: zu wenige Ziehungen")
+            print("❌ Frequenz-Stabilität: zu wenige Ziehungen")
             return
         }
 
         let total = draws.count - warmup
         let periodSize = total / periodCount
         let start = Date()
-        var results: [PeriodResult] = []
 
         print("")
         print("===================================")
-        print("📊 F2/50 – HISTORISCHE STABILITÄT")
+        print("📊 FREQUENZ-FENSTER – 5-PERIODEN-STABILITÄT")
         print("===================================")
         print("Warm-up             : \(warmup)")
-        print("F2                  : letzte 50 Trainingsziehungen")
-        print("Perioden            : 5 zeitlich getrennte Blöcke")
+        print("Fenster             : 25 / 50 / 75 / 100 / 150 Ziehungen")
+        print("Perioden            : \(periodCount) zeitlich getrennte Blöcke")
         print("Aufteilung          : je Block Validation / Holdout")
         print("Holdout             : erst nach der Tippbildung")
+        print("Profilwahl          : keine")
         print("")
 
-        for period in 0..<periodCount {
-            let periodStart = warmup + period * periodSize
-            let periodEnd = period == periodCount - 1 ? draws.count : min(draws.count, warmup + (period + 1) * periodSize)
-            let size = periodEnd - periodStart
-            guard size >= 2 else { continue }
+        var windowResults: [WindowResult] = []
 
-            let validationEnd = periodStart + size / 2
-            var validation = Aggregate()
-            var holdout = Aggregate()
+        for window in frequencyWindows {
+            var validationScores: [Double] = []
+            var holdoutScores: [Double] = []
+            var positiveHoldouts = 0
 
-            for index in periodStart..<validationEnd {
-                let ticket = makeTicket(from: draws, before: index)
-                add(ticket: ticket, target: draws[index], to: &validation)
+            for period in 0..<periodCount {
+                let periodStart = warmup + period * periodSize
+                let periodEnd = period == periodCount - 1
+                    ? draws.count
+                    : min(draws.count, warmup + (period + 1) * periodSize)
+                let size = periodEnd - periodStart
+                guard size >= 2 else { continue }
+
+                let validationEnd = periodStart + size / 2
+                var validation = Aggregate()
+                var holdout = Aggregate()
+
+                for index in periodStart..<validationEnd {
+                    let ticket = makeTicket(from: draws, before: index, window: window)
+                    add(ticket: ticket, target: draws[index], to: &validation)
+                }
+
+                for index in validationEnd..<periodEnd {
+                    let ticket = makeTicket(from: draws, before: index, window: window)
+                    add(ticket: ticket, target: draws[index], to: &holdout)
+                }
+
+                validationScores.append(validation.score)
+                holdoutScores.append(holdout.score)
+                if holdout.score > 0 { positiveHoldouts += 1 }
             }
 
-            for index in validationEnd..<periodEnd {
-                let ticket = makeTicket(from: draws, before: index)
-                add(ticket: ticket, target: draws[index], to: &holdout)
-            }
+            let averageValidation = validationScores.isEmpty
+                ? 0
+                : validationScores.reduce(0, +) / Double(validationScores.count)
+            let averageHoldout = holdoutScores.isEmpty
+                ? 0
+                : holdoutScores.reduce(0, +) / Double(holdoutScores.count)
 
-            results.append(PeriodResult(
-                name: "Periode \(period + 1)",
-                validation: validation.score,
-                holdout: holdout.score,
-                validationTickets: validation.tickets,
-                holdoutTickets: holdout.tickets
+            windowResults.append(WindowResult(
+                window: window,
+                validation: averageValidation,
+                holdout: averageHoldout,
+                positiveHoldouts: positiveHoldouts
             ))
         }
 
         print("-----------------------------------")
-        print("ERGEBNISSE")
+        print("GESAMTVERGLEICH")
         print("-----------------------------------")
-        print("Periode      Val Δ       Hold Δ")
-        for result in results {
-            print(String(format: "%-10@  %+.3f       %+.3f", result.name, result.validation, result.holdout))
+        print("Fenster   Ø Val Δ    Ø Hold Δ   Pos. Holdouts")
+        for result in windowResults {
+            print(String(format: "%-7d   %+.3f      %+.3f        %d/%d",
+                         result.window,
+                         result.validation,
+                         result.holdout,
+                         result.positiveHoldouts,
+                         periodCount))
         }
 
-        if !results.isEmpty {
-            let averageValidation = results.map(\.validation).reduce(0, +) / Double(results.count)
-            let averageHoldout = results.map(\.holdout).reduce(0, +) / Double(results.count)
-            let positiveHoldouts = results.filter { $0.holdout > 0 }.count
-
+        if let best = windowResults.max(by: { $0.holdout < $1.holdout }) {
             print("")
-            print("GESAMT")
-            print(String(format: "Ø Validation Δ     : %+.3f", averageValidation))
-            print(String(format: "Ø Holdout Δ        : %+.3f", averageHoldout))
-            print("Positive Holdouts  : \(positiveHoldouts)/\(results.count)")
+            print("Top nach Ø Holdout:")
+            print(String(format: "%d Ziehungen: Hold Δ %+.3f | Val Δ %+.3f | positive Holdouts %d/%d",
+                         best.window,
+                         best.holdout,
+                         best.validation,
+                         best.positiveHoldouts,
+                         periodCount))
         }
 
-        print(String(format: "⏱ F2/50-Stabilität: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print(String(format: "⏱ Frequenz-Fenster-Stabilität: %.2f Sekunden",
+                     Date().timeIntervalSince(start)))
         print("===================================")
     }
 
-    private func makeTicket(from draws: [EuroJackpotDraw], before index: Int) -> Ticket {
-        let source = Array(draws.prefix(index).suffix(frequencyWindow))
+    private func makeTicket(from draws: [EuroJackpotDraw], before index: Int, window: Int) -> Ticket {
+        let source = Array(draws.prefix(index).suffix(window))
         var main: [Int: Int] = [:]
         var euro: [Int: Int] = [:]
 
