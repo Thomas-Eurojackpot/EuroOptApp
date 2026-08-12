@@ -47,7 +47,13 @@ final class FrequencyBaselineAnalyzer {
     }
 
     private let warmup = WeightSweepCore.warmup
-    private let windows = [50, 100, 200, 400]
+    private let windows: [(name: String, size: Int)] = [
+        ("F1", 0),
+        ("F2", 50),
+        ("F3", 100),
+        ("F4", 200),
+        ("F5", 400)
+    ]
 
     func run(draws: [EuroJackpotDraw], splitCount: Int = 5) {
         guard draws.count > warmup + 20 else {
@@ -59,7 +65,7 @@ final class FrequencyBaselineAnalyzer {
         let totalTests = draws.count - warmup
         let requestedSplits = max(1, splitCount)
         let availableWindow = totalTests / requestedSplits
-        var resultsByWindow: [Int: [SplitResult]] = [:]
+        var resultsByName: [String: [SplitResult]] = [:]
 
         print("")
         print("===================================")
@@ -77,7 +83,7 @@ final class FrequencyBaselineAnalyzer {
         print("Holdout             : erst nach der jeweiligen Auswahl")
         print("")
 
-        for window in windows {
+        for model in windows {
             var splitResults: [SplitResult] = []
 
             for split in 0..<requestedSplits {
@@ -96,32 +102,32 @@ final class FrequencyBaselineAnalyzer {
                 for index in validationStart..<holdoutStart {
                     let trainingDraws = Array(draws.prefix(index))
                     let target = draws[index]
-                    let ticket = makeTicket(from: trainingDraws, window: window)
+                    let ticket = makeTicket(from: trainingDraws, window: model.size)
                     add(ticket: ticket, target: target, to: &validation)
                 }
 
                 for index in holdoutStart..<splitEnd {
                     let trainingDraws = Array(draws.prefix(index))
                     let target = draws[index]
-                    let ticket = makeTicket(from: trainingDraws, window: window)
+                    let ticket = makeTicket(from: trainingDraws, window: model.size)
                     add(ticket: ticket, target: target, to: &holdout)
                 }
 
                 splitResults.append(SplitResult(split: split + 1, validation: validation, holdout: holdout))
             }
 
-            resultsByWindow[window] = splitResults
+            resultsByName[model.name] = splitResults
         }
 
         print("-----------------------------------")
         print("SPLIT-ERGEBNISSE")
         print("-----------------------------------")
         for split in 1...requestedSplits {
-            let values = windows.map { window -> String in
-                guard let result = resultsByWindow[window]?.first(where: { $0.split == split }) else {
-                    return "F\(window): n/a"
+            let values = windows.map { model -> String in
+                guard let result = resultsByName[model.name]?.first(where: { $0.split == split }) else {
+                    return "\(model.name): n/a"
                 }
-                return String(format: "F%d Val %+.3f Hold %+.3f", window == 50 ? 2 : window == 100 ? 3 : window == 200 ? 4 : 5, result.validation.score, result.holdout.score)
+                return String(format: "%@ Val %+.3f Hold %+.3f", model.name, result.validation.score, result.holdout.score)
             }
             print("Split \(split) | " + values.joined(separator: " | "))
         }
@@ -131,21 +137,19 @@ final class FrequencyBaselineAnalyzer {
         print("GESAMTVERGLEICH")
         print("-----------------------------------")
         print("Modell    Val Haupt   Val Euro   Val Δ      Hold Haupt   Hold Euro   Hold Δ")
-        printRow(name: "F1", results: resultsByWindow[50] ?? [])
-        printRow(name: "F2", results: resultsByWindow[50] ?? [])
-        printRow(name: "F3", results: resultsByWindow[100] ?? [])
-        printRow(name: "F4", results: resultsByWindow[200] ?? [])
-        printRow(name: "F5", results: resultsByWindow[400] ?? [])
+        for model in windows {
+            printRow(name: model.name, results: resultsByName[model.name] ?? [])
+        }
 
         print("")
-        print("F1/F2/F3/F4/F5 sind reine Kontrollmodelle: keine Gewichtung, keine Optimierung, keine Holdout-Information bei der Tippbildung.")
+        print("F1-F5 sind reine Kontrollmodelle: keine Gewichtung, keine Optimierung, keine Holdout-Information bei der Tippbildung.")
         print("Die Euro-Basis wird historisch korrekt über das Datum des jeweiligen Ziel-Los berücksichtigt.")
         print(String(format: "⏱ Frequenz-Fenstervergleich: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
     }
 
     private func makeTicket(from draws: [EuroJackpotDraw], window: Int) -> Ticket {
-        let source = Array(draws.suffix(window))
+        let source = window > 0 ? Array(draws.suffix(window)) : draws
         let mainCounts = frequencyCounts(draws: source, keyPath: \.numbers)
         let euroCounts = frequencyCounts(draws: source, keyPath: \.euroNumbers)
 
