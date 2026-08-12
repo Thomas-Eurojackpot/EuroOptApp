@@ -3,9 +3,9 @@ import Foundation
 /// Walk-forward research analyzer for combining the fixed F2/50 frequency signal
 /// with longer historical frequency windows.
 ///
-/// The analyzer never changes F2/50. For every split it selects one frequency
-/// window/weight combination using validation only, then evaluates that choice
-/// on the subsequent holdout period.
+/// F2/50 remains the fixed reference. A frequency blend is only selected when
+/// it shows support across multiple independent validation segments, reducing
+/// the risk of choosing a variant because of one unusually good validation block.
 final class FrequencyLearningAnalyzer {
 
     private struct Aggregate {
@@ -42,10 +42,17 @@ final class FrequencyLearningAnalyzer {
         let weightPercent: Int
     }
 
+    private struct ValidationEvidence {
+        let meanAdvantage: Double
+        let positiveSegments: Int
+        let segmentCount: Int
+        let minimumAdvantage: Double
+    }
+
     private struct SplitResult {
         let split: Int
         let winner: Variant
-        let validation: Double
+        let evidence: ValidationEvidence
         let holdout: Aggregate
         let f2Holdout: Aggregate
     }
@@ -54,6 +61,7 @@ final class FrequencyLearningAnalyzer {
     private let baseWindow = 50
     private let windows = [50, 100, 200, 400]
     private let weights = Array(stride(from: 10, through: 90, by: 10))
+    private let validationSegments = 3
 
     func run(draws: [EuroJackpotDraw], splitCount: Int = 10) {
         guard draws.count > warmup + 20 else {
@@ -72,14 +80,15 @@ final class FrequencyLearningAnalyzer {
 
         print("")
         print("===================================")
-        print("📊 F2/50 → FREQUENZ-BLEND-SWEEP")
+        print("📊 F2/50 → STABILER FREQUENZ-BLEND-SWEEP")
         print("===================================")
         print("Warm-up             : \(warmup)")
         print("Splits              : \(requestedSplits)")
         print("Basis               : F2/50")
         print("Fenster             : \(windows.map(String.init).joined(separator: " / "))")
         print("Blend               : 10% ... 90% Frequenz")
-        print("Auswahl             : ausschließlich Validation")
+        print("Validation-Segmente : \(validationSegments)")
+        print("Auswahl             : Mittelwert + Stabilität, ausschließlich Validation")
         print("Holdout             : erst nach der Auswahl")
         print("")
 
@@ -89,35 +98,67 @@ final class FrequencyLearningAnalyzer {
                 ? draws.count
                 : min(draws.count, warmup + (split + 1) * availableWindow)
             let splitSize = splitEnd - splitStart
-            guard splitSize >= 2 else { continue }
+            guard splitSize >= validationSegments + 1 else { continue }
 
             let validationEnd = splitStart + splitSize / 2
-            var validation: [Variant: Aggregate] = [:]
-            for variant in variants { validation[variant] = Aggregate() }
+            let validationSize = validationEnd - splitStart
+            let segmentSize = max(1, validationSize / validationSegments)
 
-            for index in splitStart..<validationEnd {
-                let trainingDraws = Array(draws.prefix(index))
-                let target = draws[index]
+            var evidenceByVariant: [Variant: ValidationEvidence] = [:]
 
-                for variant in variants {
-                    let ticket = makeBlendTicket(from: trainingDraws, variant: variant)
-                    validation[variant, default: Aggregate()].add(ticket: ticket, target: target)
+            for variant in variants {
+                var advantages: [Double] = []
+
+                for segment in 0..<validationSegments {
+                    let segmentStart = splitStart + segment * segmentSize
+                    let segmentEnd = segment == validationSegments - 1
+                        ? validationEnd
+                        : min(validationEnd, segmentStart + segmentSize)
+
+                    guard segmentStart < segmentEnd else { continue }
+
+                    var candidateAggregate = Aggregate()
+                    var f2Aggregate = Aggregate()
+
+                    for index in segmentStart..<segmentEnd {
+                        let trainingDraws = Array(draws.prefix(index))
+                        let target = draws[index]
+
+                        candidateAggregate.add(
+                            ticket: makeBlendTicket(from: trainingDraws, variant: variant),
+                            target: target
+                        )
+                        f2Aggregate.add(
+                            ticket: makeBlendTicket(
+                                from: trainingDraws,
+                                variant: Variant(window: baseWindow, weightPercent: 0)
+                            ),
+                            target: target
+                        )
+                    }
+
+                    advantages.append(candidateAggregate.score - f2Aggregate.score)
                 }
+
+                guard !advantages.isEmpty else { continue }
+
+                let mean = advantages.reduce(0, +) / Double(advantages.count)
+                let positive = advantages.filter { $0 > 0 }.count
+                let minimum = advantages.min() ?? 0
+
+                evidenceByVariant[variant] = ValidationEvidence(
+                    meanAdvantage: mean,
+                    positiveSegments: positive,
+                    segmentCount: advantages.count,
+                    minimumAdvantage: minimum
+                )
             }
 
-            guard let winner = variants.max(by: { lhs, rhs in
-                let left = validation[lhs]?.score ?? -.infinity
-                let right = validation[rhs]?.score ?? -.infinity
-                if left == right {
-                    if lhs.weightPercent == rhs.weightPercent {
-                        return lhs.window > rhs.window
-                    }
-                    return lhs.weightPercent > rhs.weightPercent
-                }
-                return left < right
-            }) else { continue }
+            guard let winner = selectStableWinner(variants: variants, evidence: evidenceByVariant) else {
+                continue
+            }
 
-            let winnerValidation = validation[winner]?.score ?? 0
+            let evidence = evidenceByVariant[winner]!
             var winnerHoldout = Aggregate()
             var f2Holdout = Aggregate()
 
@@ -142,18 +183,21 @@ final class FrequencyLearningAnalyzer {
                 SplitResult(
                     split: split + 1,
                     winner: winner,
-                    validation: winnerValidation,
+                    evidence: evidence,
                     holdout: winnerHoldout,
                     f2Holdout: f2Holdout
                 )
             )
 
             print(String(
-                format: "Split %2d | Gewinner: Freq%03d + %2d%% | Val Δ %+.3f | Hold Δ %+.3f | F2 Hold Δ %+.3f",
+                format: "Split %2d | Gewinner: Freq%03d + %2d%% | Val Δ ggü F2 %+.3f | Pos %d/%d | Min %+.3f | Hold Δ %+.3f | F2 Hold Δ %+.3f",
                 split + 1,
                 winner.window,
                 winner.weightPercent,
-                winnerValidation,
+                evidence.meanAdvantage,
+                evidence.positiveSegments,
+                evidence.segmentCount,
+                evidence.minimumAdvantage,
                 winnerHoldout.score,
                 f2Holdout.score
             ))
@@ -181,7 +225,7 @@ final class FrequencyLearningAnalyzer {
 
         print("")
         print("===================================")
-        print("GESAMT: VALIDATION-GEWÄHLTER BLEND")
+        print("GESAMT: STABILITÄTS-GEWÄHLTER BLEND")
         print("===================================")
         print(String(format: "Gewählter Blend Hold Δ : %+.3f", totalSelected.score))
         print(String(format: "F2/50 Hold Δ           : %+.3f", totalF2.score))
@@ -200,12 +244,45 @@ final class FrequencyLearningAnalyzer {
         }
 
         print("")
-        print("Hinweis:")
-        print("Die Blend-Variante wird ausschließlich aus der Validation gewählt.")
-        print("Der Holdout wird erst nach der jeweiligen Auswahl ausgewertet.")
+        print("Interpretation:")
+        print("Eine Variante muss in mindestens 2 von 3 Validation-Segmenten gegenüber F2 positiv sein.")
+        print("Bei mehreren zulässigen Varianten entscheidet der höchste mittlere Vorteil gegenüber F2.")
+        print("Bei Gleichstand entscheidet der höhere minimale Segmentvorteil.")
+        print("Der Holdout wird erst nach der Validation-Auswahl ausgewertet.")
         print("F2/50 bleibt unverändert die Referenz.")
         print("")
-        print(String(format: "⏱ Frequenz-Blend-Sweep: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print(String(format: "⏱ Stabiler Frequenz-Blend-Sweep: %.2f Sekunden", Date().timeIntervalSince(start)))
+    }
+
+    private func selectStableWinner(
+        variants: [Variant],
+        evidence: [Variant: ValidationEvidence]
+    ) -> Variant? {
+        let eligible = variants.filter { variant in
+            guard let item = evidence[variant] else { return false }
+            return item.positiveSegments >= 2
+        }
+
+        let pool = eligible.isEmpty ? variants.filter { evidence[$0] != nil } : eligible
+
+        return pool.max { lhs, rhs in
+            let left = evidence[lhs]!
+            let right = evidence[rhs]!
+
+            if left.meanAdvantage != right.meanAdvantage {
+                return left.meanAdvantage < right.meanAdvantage
+            }
+            if left.positiveSegments != right.positiveSegments {
+                return left.positiveSegments < right.positiveSegments
+            }
+            if left.minimumAdvantage != right.minimumAdvantage {
+                return left.minimumAdvantage < right.minimumAdvantage
+            }
+            if lhs.weightPercent != rhs.weightPercent {
+                return lhs.weightPercent > rhs.weightPercent
+            }
+            return lhs.window > rhs.window
+        }
     }
 
     private func makeBlendTicket(from draws: [EuroJackpotDraw], variant: Variant) -> Ticket {
