@@ -35,6 +35,7 @@ final class FrequencyStabilityAnalyzer {
 
     private let warmup = WeightSweepCore.warmup
     private let frequencyWindow = 50
+    private let periodCount = 5
 
     func run(draws: [EuroJackpotDraw]) {
         guard draws.count > warmup + 100 else {
@@ -43,7 +44,7 @@ final class FrequencyStabilityAnalyzer {
         }
 
         let total = draws.count - warmup
-        let periodSize = total / 3
+        let periodSize = total / periodCount
         let start = Date()
         var results: [PeriodResult] = []
 
@@ -53,14 +54,14 @@ final class FrequencyStabilityAnalyzer {
         print("===================================")
         print("Warm-up             : \(warmup)")
         print("F2                  : letzte 50 Trainingsziehungen")
-        print("Perioden            : 3 zeitlich getrennte Blöcke")
+        print("Perioden            : 5 zeitlich getrennte Blöcke")
         print("Aufteilung          : je Block Validation / Holdout")
         print("Holdout             : erst nach der Tippbildung")
         print("")
 
-        for period in 0..<3 {
+        for period in 0..<periodCount {
             let periodStart = warmup + period * periodSize
-            let periodEnd = period == 2 ? draws.count : min(draws.count, warmup + (period + 1) * periodSize)
+            let periodEnd = period == periodCount - 1 ? draws.count : min(draws.count, warmup + (period + 1) * periodSize)
             let size = periodEnd - periodStart
             guard size >= 2 else { continue }
 
