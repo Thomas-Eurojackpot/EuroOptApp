@@ -9,7 +9,7 @@ import Foundation
 //
 /// Repeats the Alpha 7.5 validation/holdout split over several temporal windows.
 /// Additionally compares the selected Alpha profile directly against the fixed
-/// 50-draw frequency baseline on the exact same split boundaries.
+/// 50-draw frequency baseline and against an F2 -> Alpha constrained candidate pool.
 final class WeightSweepRobustnessAnalyzer {
     private struct Aggregate {
         var hits = 0
@@ -29,10 +29,14 @@ final class WeightSweepRobustnessAnalyzer {
         let holdout: Aggregate
         let frequencyValidation: Aggregate
         let frequencyHoldout: Aggregate
+        let constrainedValidation: Aggregate
+        let constrainedHoldout: Aggregate
     }
 
     private let warmup = WeightSweepCore.warmup
     private let frequencyWindow = 50
+    private let constrainedMainPoolSize = 10
+    private let constrainedEuroPoolSize = 4
 
     func run(draws: [EuroJackpotDraw], recommendationCount: Int, splitCount: Int = 10) {
         guard draws.count > warmup + 20 else {
@@ -62,6 +66,7 @@ final class WeightSweepRobustnessAnalyzer {
         print("Profilwahl          : ausschließlich Validation")
         print("Holdout             : erst nach Profilwahl")
         print("Vergleichsbasis     : F2 / letzte \(frequencyWindow) Ziehungen")
+        print("F2 → Alpha          : Top \(constrainedMainPoolSize) Hauptzahlen + Top \(constrainedEuroPoolSize) Eurozahlen")
         print("")
 
         for split in 0..<requestedSplits {
@@ -95,6 +100,21 @@ final class WeightSweepRobustnessAnalyzer {
             let winner = profiles[winnerIndex]
             var holdout = Aggregate()
             var frequencyHoldout = Aggregate()
+            var constrainedValidation = Aggregate()
+            var constrainedHoldout = Aggregate()
+
+            // F2 → Alpha uses the Alpha profile selected from the unrestricted Validation.
+            // Alpha is only allowed to rank tickets built from the F2 frequency pool.
+            let validationTraining = Array(draws.prefix(holdoutStart))
+            let holdoutTraining = Array(draws.prefix(holdoutStart))
+            let constrainedCache = ScoreCache(draws: validationTraining)
+            let constrainedScoreEngine = ScoreEngine(cache: constrainedCache, goal: winner.goal)
+            let validationConstrainedTickets = makeConstrainedTickets(from: validationTraining, scoreEngine: constrainedScoreEngine, limit: recommendationCount)
+
+            for index in validationStart..<holdoutStart {
+                let targetDraw = draws[index]
+                add(tickets: validationConstrainedTickets, target: targetDraw, to: &constrainedValidation)
+            }
 
             for index in holdoutStart..<holdoutEnd {
                 let trainingDraws = Array(draws.prefix(index))
@@ -105,9 +125,12 @@ final class WeightSweepRobustnessAnalyzer {
                 let best = WeightSweepCore.bestTickets(candidates: candidates, scoreEngine: scoreEngine, limit: recommendationCount)
                 add(tickets: best, target: targetDraw, to: &holdout)
                 add(tickets: [makeFrequencyTicket(from: trainingDraws)], target: targetDraw, to: &frequencyHoldout)
+
+                let constrainedHoldoutTickets = makeConstrainedTickets(from: trainingDraws, scoreEngine: scoreEngine, limit: recommendationCount)
+                add(tickets: constrainedHoldoutTickets, target: targetDraw, to: &constrainedHoldout)
             }
 
-            results.append(SplitResult(split: split + 1, winner: winner, validation: validationTotals[winnerIndex], holdout: holdout, frequencyValidation: frequencyValidation, frequencyHoldout: frequencyHoldout))
+            results.append(SplitResult(split: split + 1, winner: winner, validation: validationTotals[winnerIndex], holdout: holdout, frequencyValidation: frequencyValidation, frequencyHoldout: frequencyHoldout, constrainedValidation: constrainedValidation, constrainedHoldout: constrainedHoldout))
         }
 
         print("SPLIT-ERGEBNISSE")
@@ -124,11 +147,15 @@ final class WeightSweepRobustnessAnalyzer {
         var alphaHoldout = Aggregate()
         var frequencyValidation = Aggregate()
         var frequencyHoldout = Aggregate()
+        var constrainedValidation = Aggregate()
+        var constrainedHoldout = Aggregate()
         for result in results {
             merge(result.validation, into: &alphaValidation)
             merge(result.holdout, into: &alphaHoldout)
             merge(result.frequencyValidation, into: &frequencyValidation)
             merge(result.frequencyHoldout, into: &frequencyHoldout)
+            merge(result.constrainedValidation, into: &constrainedValidation)
+            merge(result.constrainedHoldout, into: &constrainedHoldout)
         }
         print(String(format: "Alpha 7.5  | Val Δ %+.3f | Holdout Δ %+.3f", alphaValidation.score, alphaHoldout.score))
         print(String(format: "F2 / 50    | Val Δ %+.3f | Holdout Δ %+.3f", frequencyValidation.score, frequencyHoldout.score))
@@ -136,6 +163,15 @@ final class WeightSweepRobustnessAnalyzer {
         let alphaWins = results.filter { $0.holdout.score > $0.frequencyHoldout.score }.count
         let f2Wins = results.filter { $0.frequencyHoldout.score > $0.holdout.score }.count
         print("Holdout-Splits: Alpha \(alphaWins)x | F2 \(f2Wins)x | Gleichstand \(results.count - alphaWins - f2Wins)x")
+
+        print("")
+        print("F2 → ALPHA – GESAMT")
+        print("-----------------------------------")
+        print(String(format: "F2 → Alpha  | Val Δ %+.3f | Holdout Δ %+.3f", constrainedValidation.score, constrainedHoldout.score))
+        print(String(format: "Mehrwert gegenüber F2 im Holdout: %+.3f Δ-Punkte", constrainedHoldout.score - frequencyHoldout.score))
+        let constrainedWins = results.filter { $0.constrainedHoldout.score > $0.frequencyHoldout.score }.count
+        let constrainedLosses = results.filter { $0.constrainedHoldout.score < $0.frequencyHoldout.score }.count
+        print("Holdout-Splits gegen F2: F2→Alpha \(constrainedWins)x | F2 \(constrainedLosses)x | Gleichstand \(results.count - constrainedWins - constrainedLosses)x")
 
         print("")
         FrequencyBaselineAnalyzer().run(draws: draws, splitCount: requestedSplits)
@@ -146,15 +182,54 @@ final class WeightSweepRobustnessAnalyzer {
 
     private func makeFrequencyTicket(from draws: [EuroJackpotDraw]) -> Ticket {
         let source = Array(draws.suffix(frequencyWindow))
-        var mainCounts: [Int: Int] = [:]
-        var euroCounts: [Int: Int] = [:]
-        for draw in source {
-            for number in draw.numbers { mainCounts[number, default: 0] += 1 }
-            for number in draw.euroNumbers { euroCounts[number, default: 0] += 1 }
+        return makeFrequencyTicket(from: source, mainLimit: 5, euroLimit: 2)
+    }
+
+    private func makeConstrainedTickets(from draws: [EuroJackpotDraw], scoreEngine: ScoreEngine, limit: Int) -> [Ticket] {
+        let source = Array(draws.suffix(frequencyWindow))
+        let mainPool = rankedNumbers(in: source, range: 1...50, limit: constrainedMainPoolSize, isEuro: false)
+        let euroPool = rankedNumbers(in: source, range: 1...12, limit: constrainedEuroPoolSize, isEuro: true)
+        var tickets: [Ticket] = []
+        let mainCombinations = combinations(mainPool, choosing: 5)
+        let euroCombinations = combinations(euroPool, choosing: 2)
+        tickets.reserveCapacity(mainCombinations.count * euroCombinations.count)
+        for main in mainCombinations {
+            for euro in euroCombinations {
+                tickets.append(Ticket(numbers: main.sorted(), euroNumbers: euro.sorted()))
+            }
         }
-        let numbers = (1...50).sorted { mainCounts[$0, default: 0] == mainCounts[$1, default: 0] ? $0 < $1 : mainCounts[$0, default: 0] > mainCounts[$1, default: 0] }.prefix(5).sorted()
-        let euroNumbers = (1...12).sorted { euroCounts[$0, default: 0] == euroCounts[$1, default: 0] ? $0 < $1 : euroCounts[$0, default: 0] > euroCounts[$1, default: 0] }.prefix(2).sorted()
-        return Ticket(numbers: Array(numbers), euroNumbers: Array(euroNumbers))
+        return WeightSweepCore.bestTickets(candidates: tickets, scoreEngine: scoreEngine, limit: limit)
+    }
+
+    private func makeFrequencyTicket(from source: [EuroJackpotDraw], mainLimit: Int, euroLimit: Int) -> Ticket {
+        let mainNumbers = rankedNumbers(in: source, range: 1...50, limit: mainLimit, isEuro: false)
+        let euroNumbers = rankedNumbers(in: source, range: 1...12, limit: euroLimit, isEuro: true)
+        return Ticket(numbers: mainNumbers.sorted(), euroNumbers: euroNumbers.sorted())
+    }
+
+    private func rankedNumbers(in draws: [EuroJackpotDraw], range: ClosedRange<Int>, limit: Int, isEuro: Bool) -> [Int] {
+        var counts: [Int: Int] = [:]
+        for draw in draws {
+            let values = isEuro ? draw.euroNumbers : draw.numbers
+            for value in values { counts[value, default: 0] += 1 }
+        }
+        return Array(range.sorted {
+            let left = counts[$0, default: 0]
+            let right = counts[$1, default: 0]
+            return left == right ? $0 < $1 : left > right
+        }.prefix(limit))
+    }
+
+    private func combinations(_ values: [Int], choosing k: Int) -> [[Int]] {
+        guard k > 0, values.count >= k else { return k == 0 ? [[]] : [] }
+        if k == 1 { return values.map { [$0] } }
+        var result: [[Int]] = []
+        for index in 0...(values.count - k) {
+            let head = values[index]
+            let tails = combinations(Array(values[(index + 1)...]), choosing: k - 1)
+            for tail in tails { result.append([head] + tail) }
+        }
+        return result
     }
 
     private func add(tickets: [Ticket], target: EuroJackpotDraw, to aggregate: inout Aggregate) {
