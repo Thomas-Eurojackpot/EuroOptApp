@@ -34,6 +34,9 @@ final class OptimizerViewModel: ObservableObject {
     @Published var isConfirmationRunning = false
     @Published var confirmationStatus = "Noch kein G/U-Bestätigungstest gestartet"
 
+    @Published var isRobustnessRunning = false
+    @Published var robustnessStatus = "Noch keine Robustheitsanalyse gestartet"
+
     @Published var isLearning = false
     @Published var learningStatus = "Noch kein Lernlauf gestartet"
     @Published var learnedGoal = OptimizationGoalStore.shared.currentGoal
@@ -126,7 +129,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func startLearning() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning, !isRobustnessRunning else { return }
 
         let draws = database.allDraws()
         let recommendationCount = AppSettings.recommendationCount
@@ -156,7 +159,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func resetLearnedWeights() {
-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning, !isRobustnessRunning else { return }
         OptimizationGoalStore.shared.reset()
         learnedGoal = OptimizationGoalStore.shared.currentGoal
         learningResult = nil
@@ -164,7 +167,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runHoldoutTest() {
-        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning, !isRobustnessRunning else { return }
 
         let draws = database.allDraws()
         isHoldoutRunning = true
@@ -190,7 +193,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runRandomBenchmark() {
-        guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning, !isRobustnessRunning else { return }
 
         let draws = database.allDraws()
         isRandomBenchmarkRunning = true
@@ -217,7 +220,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runNormalDistributionTest() {
-        guard !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isMoonPhaseRunning, !isConfirmationRunning, !isRobustnessRunning else { return }
 
         let draws = database.allDraws()
         isNormalDistributionRunning = true
@@ -244,7 +247,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runMoonPhaseTest() {
-        guard !isMoonPhaseRunning, !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isConfirmationRunning else { return }
+        guard !isMoonPhaseRunning, !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isConfirmationRunning, !isRobustnessRunning else { return }
 
         let draws = database.allDraws()
         isMoonPhaseRunning = true
@@ -271,7 +274,7 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     func runGUConfirmation() {
-        guard !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
+        guard !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRobustnessRunning else { return }
 
         let draws = database.allDraws()
         isConfirmationRunning = true
@@ -296,8 +299,36 @@ final class OptimizerViewModel: ObservableObject {
         }
     }
 
+    func runRobustnessAnalysis() {
+        guard !isRobustnessRunning, !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+        isRobustnessRunning = true
+        robustnessStatus = "Robustheitsanalyse läuft – fünf zeitliche Validation/Holdout-Splits..."
+
+        print("===================================")
+        print("🧪 ALPHA 7.5 ROBUSTHEITS-ANALYSE")
+        print("===================================")
+        print("🔒 Separater Analyzer – Produktions-WeightSweepEngine bleibt unverändert.")
+        print("🔒 Profilwahl erfolgt je Split ausschließlich aus der Validation.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            WeightSweepRobustnessAnalyzer().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount,
+                splitCount: 5
+            )
+
+            DispatchQueue.main.async {
+                self.robustnessStatus = "Robustheitsanalyse beendet – Ergebnisse im Konsolen-Output"
+                self.isRobustnessRunning = false
+            }
+        }
+    }
+
     func runBacktest() {
-        guard !isLearning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
+        guard !isLearning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning, !isRobustnessRunning else { return }
 
         let draws = database.allDraws()
         isBacktestRunning = true
