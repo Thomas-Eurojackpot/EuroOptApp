@@ -9,10 +9,8 @@
 import Foundation
 
 /// Repeats the Alpha 7.5 validation/holdout split over several temporal windows.
-///
-/// The analyzer uses WeightSweepCore for profile generation, ticket selection,
-/// expected Euro hits and validation scoring. It does not modify Alpha 7.5's
-/// existing WeightSweepEngine.
+/// Additionally compares the selected Alpha profile directly against the fixed
+/// 50-draw frequency baseline on the exact same split boundaries.
 final class WeightSweepRobustnessAnalyzer {
 
     private struct Aggregate {
@@ -21,21 +19,10 @@ final class WeightSweepRobustnessAnalyzer {
         var tickets = 0
         var expectedEuroHits = 0.0
 
-        var averageMain: Double {
-            tickets > 0 ? Double(hits) / Double(tickets) : 0
-        }
-
-        var averageEuro: Double {
-            tickets > 0 ? Double(euroHits) / Double(tickets) : 0
-        }
-
-        var averageExpectedEuro: Double {
-            tickets > 0 ? expectedEuroHits / Double(tickets) : 0
-        }
-
-        var score: Double {
-            (averageMain - 0.50) + (averageEuro - averageExpectedEuro)
-        }
+        var averageMain: Double { tickets > 0 ? Double(hits) / Double(tickets) : 0 }
+        var averageEuro: Double { tickets > 0 ? Double(euroHits) / Double(tickets) : 0 }
+        var averageExpectedEuro: Double { tickets > 0 ? expectedEuroHits / Double(tickets) : 0 }
+        var score: Double { (averageMain - 0.50) + (averageEuro - averageExpectedEuro) }
     }
 
     private struct SplitResult {
@@ -47,9 +34,12 @@ final class WeightSweepRobustnessAnalyzer {
         let winner: WeightSweepProfile
         let validation: Aggregate
         let holdout: Aggregate
+        let frequencyValidation: Aggregate
+        let frequencyHoldout: Aggregate
     }
 
     private let warmup = WeightSweepCore.warmup
+    private let frequencyWindow = 50
 
     func run(draws: [EuroJackpotDraw], recommendationCount: Int, splitCount: Int = 5) {
         guard draws.count > warmup + 20 else {
@@ -78,9 +68,11 @@ final class WeightSweepRobustnessAnalyzer {
         print("Kandidaten je Test  : \(candidateCount)")
         print("Profilwahl          : ausschließlich Validation")
         print("Holdout             : erst nach Profilwahl")
+        print("Vergleichsbasis     : F2 / letzte \(frequencyWindow) Ziehungen")
         print("")
         print("🔒 A100 wird nicht bevorzugt.")
-        print("🔒 WeightSweepCore ist die gemeinsame Berechnungsquelle für die Robustheitsanalyse.")
+        print("🔒 WeightSweepCore ist die gemeinsame Berechnungsquelle für die Alpha-Analyse.")
+        print("🔒 F2 verwendet exakt dieselben zeitlichen Validation-/Holdout-Grenzen.")
         print("")
 
         for split in 0..<requestedSplits {
@@ -96,6 +88,7 @@ final class WeightSweepRobustnessAnalyzer {
             let holdoutEnd = splitEnd
 
             var validationTotals = Array(repeating: Aggregate(), count: profiles.count)
+            var frequencyValidation = Aggregate()
 
             for index in validationStart..<holdoutStart {
                 let trainingDraws = Array(draws.prefix(index))
@@ -115,18 +108,11 @@ final class WeightSweepRobustnessAnalyzer {
                         scoreEngine: scoreEngines[profileIndex],
                         limit: recommendationCount
                     )
-                    validationTotals[profileIndex].hits += best.reduce(0) {
-                        $0 + Set($1.numbers).intersection(targetDraw.numbers).count
-                    }
-                    validationTotals[profileIndex].euroHits += best.reduce(0) {
-                        $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count
-                    }
-                    validationTotals[profileIndex].tickets += best.count
-                    validationTotals[profileIndex].expectedEuroHits += WeightSweepCore.expectedEuroHits(
-                        for: targetDraw.date,
-                        ticketCount: best.count
-                    )
+                    add(tickets: best, target: targetDraw, to: &validationTotals[profileIndex])
                 }
+
+                let frequencyTicket = makeFrequencyTicket(from: trainingDraws, window: frequencyWindow)
+                add(tickets: [frequencyTicket], target: targetDraw, to: &frequencyValidation)
             }
 
             guard let winnerIndex = validationTotals.indices.max(by: {
@@ -135,6 +121,7 @@ final class WeightSweepRobustnessAnalyzer {
 
             let winner = profiles[winnerIndex]
             var holdout = Aggregate()
+            var frequencyHoldout = Aggregate()
 
             for index in holdoutStart..<holdoutEnd {
                 let trainingDraws = Array(draws.prefix(index))
@@ -152,18 +139,10 @@ final class WeightSweepRobustnessAnalyzer {
                     scoreEngine: scoreEngine,
                     limit: recommendationCount
                 )
+                add(tickets: best, target: targetDraw, to: &holdout)
 
-                holdout.hits += best.reduce(0) {
-                    $0 + Set($1.numbers).intersection(targetDraw.numbers).count
-                }
-                holdout.euroHits += best.reduce(0) {
-                    $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count
-                }
-                holdout.tickets += best.count
-                holdout.expectedEuroHits += WeightSweepCore.expectedEuroHits(
-                    for: targetDraw.date,
-                    ticketCount: best.count
-                )
+                let frequencyTicket = makeFrequencyTicket(from: trainingDraws, window: frequencyWindow)
+                add(tickets: [frequencyTicket], target: targetDraw, to: &frequencyHoldout)
             }
 
             results.append(
@@ -175,44 +154,113 @@ final class WeightSweepRobustnessAnalyzer {
                     holdoutEnd: holdoutEnd,
                     winner: winner,
                     validation: validationTotals[winnerIndex],
-                    holdout: holdout
+                    holdout: holdout,
+                    frequencyValidation: frequencyValidation,
+                    frequencyHoldout: frequencyHoldout
                 )
             )
         }
 
         print("SPLIT-ERGEBNISSE")
         print("-----------------------------------")
+        print("Split | Alpha Profil | Alpha Val Δ | F2 Val Δ | Alpha Hold Δ | F2 Hold Δ")
         for result in results {
-            let weights = result.winner.weights.map { String(format: "%.0f", $0) }.joined(separator: " | ")
-            print("Split \(result.split): \(weights)")
-            print(String(format: "  Validation Δ : %+.3f", result.validation.score))
-            print(String(format: "  Holdout Δ    : %+.3f", result.holdout.score))
-            print("  Validation [\(result.validationStart)..<\(result.validationEnd)] | Holdout [\(result.holdoutStart)..<\(result.holdoutEnd)]")
+            print(String(format: " %2d   | P%02d          | %+.3f      | %+.3f    | %+.3f       | %+.3f",
+                         result.split,
+                         result.winner.id,
+                         result.validation.score,
+                         result.frequencyValidation.score,
+                         result.holdout.score,
+                         result.frequencyHoldout.score))
         }
 
         var wins: [Int: Int] = [:]
-        for result in results {
-            wins[result.winner.id, default: 0] += 1
-        }
+        for result in results { wins[result.winner.id, default: 0] += 1 }
 
         print("")
         print("PROFIL-HÄUFIGKEIT")
         print("-----------------------------------")
-        for result in profiles.sorted(by: { (wins[$0.id] ?? 0) > (wins[$1.id] ?? 0) }) {
-            let count = wins[result.id] ?? 0
+        for profile in profiles.sorted(by: { (wins[$0.id] ?? 0) > (wins[$1.id] ?? 0) }) {
+            let count = wins[profile.id] ?? 0
             guard count > 0 else { continue }
-            print("P\(String(format: "%02d", result.id)) : \(count)x | \(result.weights.map { String(format: "%.0f", $0) }.joined(separator: " | "))")
+            print("P\(String(format: "%02d", profile.id)) : \(count)x | \(profile.weights.map { String(format: "%.0f", $0) }.joined(separator: " | "))")
         }
 
         print("")
-        print("Interpretation: Jeder Split wählt sein Profil ausschließlich aus seiner Validation-Hälfte.")
-        print("Der zugehörige Holdout wird erst danach ausgewertet.")
-        print("A100 wird wie jedes andere Profil behandelt.")
-        print("Der Produktions-WeightSweepEngine wurde in diesem Schritt nicht verändert.")
+        print("ALPHA 7.5 vs. F2 / 50 – GESAMT")
+        print("-----------------------------------")
+        var alphaValidation = Aggregate()
+        var alphaHoldout = Aggregate()
+        var frequencyValidation = Aggregate()
+        var frequencyHoldout = Aggregate()
+        for result in results {
+            merge(result.validation, into: &alphaValidation)
+            merge(result.holdout, into: &alphaHoldout)
+            merge(result.frequencyValidation, into: &frequencyValidation)
+            merge(result.frequencyHoldout, into: &frequencyHoldout)
+        }
+
+        print(String(format: "Alpha 7.5  | Val Δ %+.3f | Holdout Δ %+.3f | Haupt %.3f | Euro %.3f",
+                     alphaValidation.score, alphaHoldout.score, alphaHoldout.averageMain, alphaHoldout.averageEuro))
+        print(String(format: "F2 / 50    | Val Δ %+.3f | Holdout Δ %+.3f | Haupt %.3f | Euro %.3f",
+                     frequencyValidation.score, frequencyHoldout.score, frequencyHoldout.averageMain, frequencyHoldout.averageEuro))
+        print(String(format: "Vorteil Alpha im Holdout: %+.3f Δ-Punkte",
+                     alphaHoldout.score - frequencyHoldout.score))
+
+        let alphaHoldoutWins = results.filter { $0.holdout.score > $0.frequencyHoldout.score }.count
+        let frequencyHoldoutWins = results.filter { $0.frequencyHoldout.score > $0.holdout.score }.count
+        let ties = results.count - alphaHoldoutWins - frequencyHoldoutWins
+        print("Holdout-Splits: Alpha \(alphaHoldoutWins)x | F2 \(frequencyHoldoutWins)x | Gleichstand \(ties)x")
+
+        print("")
+        print("Interpretation: Alpha wählt sein Profil je Split ausschließlich aus der Validation.")
+        print("F2 ist eine feste, nicht optimierte 50-Ziehungs-Baseline.")
+        print("Beide Methoden werden auf exakt denselben Zielziehungen bewertet.")
+        print("Der Produktions-WeightSweepEngine wurde nicht verändert.")
         print("")
         FrequencyBaselineAnalyzer().run(draws: draws, splitCount: requestedSplits)
         print("")
         print(String(format: "⏱ Robustheits-Analyse: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
+    }
+
+    private func makeFrequencyTicket(from draws: [EuroJackpotDraw], window: Int) -> Ticket {
+        let source = Array(draws.suffix(window))
+        var mainCounts: [Int: Int] = [:]
+        var euroCounts: [Int: Int] = [:]
+        for draw in source {
+            for number in draw.numbers { mainCounts[number, default: 0] += 1 }
+            for number in draw.euroNumbers { euroCounts[number, default: 0] += 1 }
+        }
+        let numbers = (1...50).sorted {
+            let lhs = mainCounts[$0, default: 0]
+            let rhs = mainCounts[$1, default: 0]
+            return lhs == rhs ? $0 < $1 : lhs > rhs
+        }.prefix(5).sorted()
+        let euroNumbers = (1...12).sorted {
+            let lhs = euroCounts[$0, default: 0]
+            let rhs = euroCounts[$1, default: 0]
+            return lhs == rhs ? $0 < $1 : lhs > rhs
+        }.prefix(2).sorted()
+        return Ticket(numbers: Array(numbers), euroNumbers: Array(euroNumbers))
+    }
+
+    private func add(tickets: [Ticket], target: EuroJackpotDraw, to aggregate: inout Aggregate) {
+        for ticket in tickets {
+            aggregate.hits += Set(ticket.numbers).intersection(target.numbers).count
+            aggregate.euroHits += Set(ticket.euroNumbers).intersection(target.euroNumbers).count
+        }
+        aggregate.tickets += tickets.count
+        aggregate.expectedEuroHits += WeightSweepCore.expectedEuroHits(
+            for: target.date,
+            ticketCount: tickets.count
+        )
+    }
+
+    private func merge(_ source: Aggregate, into target: inout Aggregate) {
+        target.hits += source.hits
+        target.euroHits += source.euroHits
+        target.tickets += source.tickets
+        target.expectedEuroHits += source.expectedEuroHits
     }
 }
