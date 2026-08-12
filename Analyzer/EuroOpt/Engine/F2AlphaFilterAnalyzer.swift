@@ -263,8 +263,14 @@ final class F2AlphaFilterAnalyzer {
         print("Der Holdout wird erst nach der Entscheidung ausgewertet.")
         print("Die Schwelle wird nicht anhand des Holdouts ausgewählt.")
         print("Der Zufallsvergleich verwendet pro Holdout-Ziehung viele unabhängig gezogene 5+2-Tipps.")
+
+        // Frequency learning is intentionally run only after the existing
+        // F2/50 → Alpha experiment has completed, so the production baseline
+        // and its reported metrics remain untouched.
+        FrequencyLearningAnalyzer().run(draws: draws)
+
         print("")
-        print(String(format: "⏱ F2/50 → Alpha Filter: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print(String(format: "⏱ F2/50 → Alpha Filter + Frequenzanalyse: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
     }
 
