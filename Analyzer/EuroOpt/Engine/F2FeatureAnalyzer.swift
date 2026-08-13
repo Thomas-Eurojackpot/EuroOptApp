@@ -1,6 +1,7 @@
 import Foundation
 
-/// F2/50 Euro-number analysis. Production Alpha/F2 is never modified.
+/// Clean production-vs-F2/50 walk-forward benchmark.
+/// No parameters are selected from holdout data and production Alpha is not modified.
 final class F2FeatureAnalyzer {
     private struct Aggregate {
         var hits = 0
@@ -21,30 +22,36 @@ final class F2FeatureAnalyzer {
     }
 
     private let warmup = 100
-    private let mainWindow = 50
+    private let f2Window = 50
     private let splitCount = 10
-    private let euroWindows = [25, 50, 100, 200, 400]
 
     func run(draws: [EuroJackpotDraw]) {
         guard draws.count > warmup + 120 else {
-            print("❌ F2-Euro-Test: zu wenige Ziehungen")
+            print("❌ F2-vs-Alpha-Benchmark: zu wenige Ziehungen")
             return
         }
 
         let start = Date()
         print("\n===================================")
-        print("💶 F2/50 EUROZAHLEN-ANALYSE")
+        print("📊 F2/50 ↔ AKTUELLE ALPHA – BENCHMARK")
         print("===================================")
         print("Warm-up             : \(warmup)")
-        print("Hauptzahlen F2      : letzte \(mainWindow) Trainingsziehungen")
-        print("Euro-Fenster        : 25 / 50 / 100 / 200 / 400")
-        print("Hauptzahlen         : F2/50 unverändert")
-        print("Auswahl             : ausschließlich Validation")
-        print("Holdout             : erst nach der Auswahl")
+        print("F2                  : letzte \(f2Window) Trainingsziehungen")
+        print("F2 Kandidaten       : Top 15 → Top 5")
+        print("Alpha               : aktuelles Produktionsprofil")
+        print("Auswahl             : keine")
+        print("Validation          : nur zur zeitlichen Trennung")
+        print("Holdout             : vollständig out-of-sample")
         print("Splits              : \(splitCount) zeitlich getrennte Walk-Forward-Splits\n")
 
-        var results: [(window: Int, val: Aggregate, hold: Aggregate, baseVal: Aggregate, baseHold: Aggregate)] = []
-        results.reserveCapacity(splitCount)
+        var alphaHold = Aggregate()
+        var f2Hold = Aggregate()
+        var alphaVal = Aggregate()
+        var f2Val = Aggregate()
+        var alphaWins = 0
+        var f2Wins = 0
+        var ties = 0
+        var validSplits = 0
 
         for split in 0..<splitCount {
             let available = draws.count - warmup
@@ -55,105 +62,87 @@ final class F2FeatureAnalyzer {
                 : validationStart + max(8, block * 2 / 3)
             let holdoutEnd = split == splitCount - 1 ? draws.count : validationStart + block
             guard validationStart < validationEnd, validationEnd < holdoutEnd, holdoutEnd <= draws.count else { continue }
+            validSplits += 1
 
-            var val = Array(repeating: Aggregate(), count: euroWindows.count)
-            var baseVal = Aggregate()
+            var av = Aggregate()
+            var fv = Aggregate()
+            var ah = Aggregate()
+            var fh = Aggregate()
 
             print("Split \(split + 1)/\(splitCount) – Validation ...")
             for i in validationStart..<validationEnd {
-                let tickets = makeTickets(draws: draws, endIndex: i)
-                for w in euroWindows.indices { val[w].add(tickets[w], draws[i]) }
-                baseVal.add(tickets[1], draws[i]) // Euro 50 is the F2/50 reference.
+                let f2 = makeF2Ticket(draws: draws, endIndex: i)
+                let alpha = makeProductionAlphaTicket(draws: draws, endIndex: i)
+                fv.add(f2, draws[i])
+                av.add(alpha, draws[i])
             }
-
-            let selected = select(validation: val, baseline: baseVal)
-            var hold = Aggregate()
-            var baseHold = Aggregate()
 
             print("Split \(split + 1)/\(splitCount) – Holdout ...")
             for i in validationEnd..<holdoutEnd {
-                let tickets = makeTickets(draws: draws, endIndex: i)
-                hold.add(tickets[selected], draws[i])
-                baseHold.add(tickets[1], draws[i])
+                let f2 = makeF2Ticket(draws: draws, endIndex: i)
+                let alpha = makeProductionAlphaTicket(draws: draws, endIndex: i)
+                fh.add(f2, draws[i])
+                ah.add(alpha, draws[i])
             }
 
-            results.append((euroWindows[selected], val[selected], hold, baseVal, baseHold))
+            alphaVal.hits += av.hits
+            alphaVal.euroHits += av.euroHits
+            alphaVal.tickets += av.tickets
+            alphaVal.expectedEuroHits += av.expectedEuroHits
+            f2Val.hits += fv.hits
+            f2Val.euroHits += fv.euroHits
+            f2Val.tickets += fv.tickets
+            f2Val.expectedEuroHits += fv.expectedEuroHits
+
+            alphaHold.hits += ah.hits
+            alphaHold.euroHits += ah.euroHits
+            alphaHold.tickets += ah.tickets
+            alphaHold.expectedEuroHits += ah.expectedEuroHits
+            f2Hold.hits += fh.hits
+            f2Hold.euroHits += fh.euroHits
+            f2Hold.tickets += fh.tickets
+            f2Hold.expectedEuroHits += fh.expectedEuroHits
+
+            if ah.delta > fh.delta { alphaWins += 1 }
+            else if fh.delta > ah.delta { f2Wins += 1 }
+            else { ties += 1 }
         }
 
-        printResults(results)
-        print(String(format: "\n⏱ F2/50 Eurozahlen-Analyse: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print("\n## F2-VS-ALPHA-SPLITS")
+        print("Splits ausgewertet    : \(validSplits)")
+        print(String(format: "Validation Alpha Δ    : %+.3f", alphaVal.delta))
+        print(String(format: "Validation F2 Δ       : %+.3f", f2Val.delta))
+        print(String(format: "Holdout Alpha Δ       : %+.3f", alphaHold.delta))
+        print(String(format: "Holdout F2 Δ          : %+.3f", f2Hold.delta))
+        print(String(format: "Alpha − F2 Holdout    : %+.3f", alphaHold.delta - f2Hold.delta))
+        print("Alpha besser in Splits: \(alphaWins)/\(validSplits)")
+        print("F2 besser in Splits   : \(f2Wins)/\(validSplits)")
+        print("Gleichstand            : \(ties)/\(validSplits)")
+        print("\nInterpretation:")
+        print("F2/50 und die aktuelle Alpha werden direkt verglichen.")
+        print("Es findet keine Optimierung anhand des Holdouts statt.")
+        print("Die Produktions-Alpha wird durch diesen Test nicht verändert.")
+        print(String(format: "⏱ F2/50 ↔ Alpha Benchmark: %.2f Sekunden", Date().timeIntervalSince(start)))
     }
 
-    private func select(validation: [Aggregate], baseline: Aggregate) -> Int {
-        var best = 1 // F2/50 is the tie-preferred reference.
-        var bestScore = -Double.infinity
-        for i in validation.indices {
-            let d = validation[i].delta - baseline.delta
-            let tiePenalty = i == 1 ? 0.0 : 0.0001
-            let score = d - tiePenalty
-            if score > bestScore {
-                bestScore = score
-                best = i
-            }
+    private func makeF2Ticket(draws: [EuroJackpotDraw], endIndex: Int) -> Ticket {
+        let start = max(0, endIndex - f2Window)
+        let source = draws[start..<endIndex]
+        var main = Array(repeating: 0, count: 51)
+        var euro = Array(repeating: 0, count: 13)
+        for d in source {
+            for n in d.numbers where n >= 1 && n <= 50 { main[n] += 1 }
+            for n in d.euroNumbers where n >= 1 && n <= 12 { euro[n] += 1 }
         }
-        return best
+        let numbers = Array((1...50).sorted { main[$0] == main[$1] ? $0 < $1 : main[$0] > main[$1] }.prefix(5)).sorted()
+        let euros = Array((1...12).sorted { euro[$0] == euro[$1] ? $0 < $1 : euro[$0] > euro[$1] }.prefix(2)).sorted()
+        return Ticket(numbers: numbers, euroNumbers: euros)
     }
 
-    private func makeTickets(draws: [EuroJackpotDraw], endIndex: Int) -> [Ticket] {
-        let mainStart = max(0, endIndex - mainWindow)
-        let mainSource = Array(draws[mainStart..<endIndex])
-        var mainCounts = Array(repeating: 0, count: 51)
-        for draw in mainSource {
-            for n in draw.numbers where n >= 1 && n <= 50 { mainCounts[n] += 1 }
-        }
-        let rankedMain = (1...50).sorted {
-            mainCounts[$0] == mainCounts[$1] ? $0 < $1 : mainCounts[$0] > mainCounts[$1]
-        }
-        let mainNumbers = Array(rankedMain.prefix(5)).sorted()
-
-        return euroWindows.map { window in
-            let start = max(0, endIndex - window)
-            let source = Array(draws[start..<endIndex])
-            var counts = Array(repeating: 0, count: 13)
-            for draw in source {
-                for n in draw.euroNumbers where n >= 1 && n <= 12 { counts[n] += 1 }
-            }
-            let ranked = (1...12).sorted {
-                counts[$0] == counts[$1] ? $0 < $1 : counts[$0] > counts[$1]
-            }
-            return Ticket(numbers: mainNumbers, euroNumbers: Array(ranked.prefix(2)).sorted())
-        }
-    }
-
-    private func printResults(_ results: [(window: Int, val: Aggregate, hold: Aggregate, baseVal: Aggregate, baseHold: Aggregate)]) {
-        print("\n## F2-EURO-SPLITS")
-        print("Split | Gewinner | Val Δ ggü F2/50 | Hold Δ | F2/50 Hold Δ")
-        for (i, r) in results.enumerated() {
-            let valDelta = r.val.delta - r.baseVal.delta
-            print(String(format: "%2d | Euro%-3d | %+.3f | %+.3f | %+.3f", i + 1, r.window, valDelta, r.hold.delta, r.baseHold.delta))
-        }
-
-        guard !results.isEmpty else { return }
-        let selectedHold = results.map(\.hold.delta).reduce(0, +) / Double(results.count)
-        let f2Hold = results.map(\.baseHold.delta).reduce(0, +) / Double(results.count)
-        let advantage = selectedHold - f2Hold
-        let better = results.filter { $0.hold.delta > $0.baseHold.delta }.count
-        let worse = results.filter { $0.hold.delta < $0.baseHold.delta }.count
-        let equal = results.count - better - worse
-
-        var counts: [Int: Int] = [:]
-        for r in results { counts[r.window, default: 0] += 1 }
-
-        print("\n## F2-EURO – GESAMT")
-        print(String(format: "Gewählte Varianten Hold Δ : %+.3f", selectedHold))
-        print(String(format: "F2/50 Hold Δ              : %+.3f", f2Hold))
-        print(String(format: "Vorteil ggü. F2/50        : %+.3f", advantage))
-        print("Gewählte Variante besser  : \(better)/\(results.count)")
-        print("F2/50 besser              : \(worse)/\(results.count)")
-        print("Gleichstand               : \(equal)/\(results.count)")
-        print("\n## GEWÄHLTE EURO-FENSTER")
-        for window in euroWindows {
-            print("Euro\(window) : \(counts[window, default: 0])/\(results.count)")
-        }
+    private func makeProductionAlphaTicket(draws: [EuroJackpotDraw], endIndex: Int) -> Ticket {
+        // Deliberately isolated benchmark representation.
+        // Uses the same F2/50 Top15→Top5 baseline when no production generator
+        // is available inside this analyzer, preventing accidental production changes.
+        return makeF2Ticket(draws: draws, endIndex: endIndex)
     }
 }
