@@ -1,14 +1,15 @@
 import Foundation
 
 /// F2 feature analysis with soft feature weighting.
-/// The expensive candidate combinations are evaluated once per historical point
-/// and reused for every feature/weight variant.
+/// F2 remains the unchanged baseline. Feature signals modify candidate ranking
+/// softly; no feature is used as a hard production filter.
 final class F2FeatureAnalyzer {
     private struct Aggregate {
         var hits = 0
         var euroHits = 0
         var tickets = 0
         var expectedEuroHits = 0.0
+
         var mainRate: Double { tickets > 0 ? Double(hits) / Double(tickets) : 0 }
         var euroRate: Double { tickets > 0 ? Double(euroHits) / Double(tickets) : 0 }
         var euroExpected: Double { tickets > 0 ? expectedEuroHits / Double(tickets) : 0 }
@@ -51,7 +52,7 @@ final class F2FeatureAnalyzer {
     // Feature bits:
     // 0 Sum100–124, 1 Even2, 2 High2, 3 Adj0,
     // 4 Spread20–29, 5 Spread30–39, 6 Spread40+
-    private let featureNames = [
+    private let featureNames: [Int: String] = [
         0: "Sum100–124",
         1: "Even2",
         2: "High2",
@@ -105,7 +106,7 @@ final class F2FeatureAnalyzer {
             var baselineValidation = Aggregate()
             var baselineHoldout = Aggregate()
 
-            print("Split \(split + 1)/\(splitCount) – Validation ...", terminator: "\n")
+            print("Split \(split + 1)/\(splitCount) – Validation ...")
 
             for index in validationStart..<validationEnd {
                 let training = Array(draws.prefix(index))
@@ -119,6 +120,8 @@ final class F2FeatureAnalyzer {
             }
 
             let selectedIndex = selectVariant(validation: validationAggregates, baseline: baselineValidation)
+
+            print("Split \(split + 1)/\(splitCount) – Holdout ...")
 
             for index in validationEnd..<holdoutEnd {
                 let training = Array(draws.prefix(index))
@@ -156,9 +159,10 @@ final class F2FeatureAnalyzer {
 
         for bit in singleBits {
             for weight in weights {
+                let featureName = featureNames[bit] ?? "Feature"
                 variants.append(
                     Variant(
-                        name: "F2 + \(featureNames[bit] ?? \"Feature\") @ \(Int(weight * 100))%",
+                        name: "F2 + \(featureName) @ \(Int(weight * 100))%",
                         mask: 1 << bit,
                         weight: weight
                     )
@@ -168,11 +172,16 @@ final class F2FeatureAnalyzer {
 
         for i in 0..<singleBits.count {
             for j in (i + 1)..<singleBits.count {
-                let mask = (1 << singleBits[i]) | (1 << singleBits[j])
+                let first = singleBits[i]
+                let second = singleBits[j]
+                let mask = (1 << first) | (1 << second)
+                let firstName = featureNames[first] ?? "Feature"
+                let secondName = featureNames[second] ?? "Feature"
+
                 for weight in weights {
                     variants.append(
                         Variant(
-                            name: "F2 + \(featureNames[singleBits[i]] ?? \"Feature\") + \(featureNames[singleBits[j]] ?? \"Feature\") @ \(Int(weight * 100))%",
+                            name: "F2 + \(firstName) + \(secondName) @ \(Int(weight * 100))%",
                             mask: mask,
                             weight: weight
                         )
@@ -190,9 +199,8 @@ final class F2FeatureAnalyzer {
 
         for index in validation.indices {
             let delta = validation[index].delta - baseline.delta
-            // Penalize negative validation performance more strongly than positive
-            // performance, while keeping F2 itself available as a safe fallback.
             let score = delta - 0.15 * max(0, -delta)
+
             if score > bestScore {
                 bestScore = score
                 bestIndex = index
@@ -208,8 +216,12 @@ final class F2FeatureAnalyzer {
         var euro: [Int: Int] = [:]
 
         for draw in source {
-            for number in draw.numbers { main[number, default: 0] += 1 }
-            for number in draw.euroNumbers { euro[number, default: 0] += 1 }
+            for number in draw.numbers {
+                main[number, default: 0] += 1
+            }
+            for number in draw.euroNumbers {
+                euro[number, default: 0] += 1
+            }
         }
 
         let rankedMain = (1...50).sorted {
@@ -217,6 +229,7 @@ final class F2FeatureAnalyzer {
                 ? $0 < $1
                 : main[$0, default: 0] > main[$1, default: 0]
         }
+
         let rankedEuro = (1...12).sorted {
             euro[$0, default: 0] == euro[$1, default: 0]
                 ? $0 < $1
@@ -228,7 +241,7 @@ final class F2FeatureAnalyzer {
         let baseline = Ticket(numbers: baselineNumbers, euroNumbers: euroNumbers)
 
         let candidates = makeCandidates(rankedMain: rankedMain, frequencies: main)
-        let bestByWeightAndMask = makeBestTickets(candidates: candidates, euroNumbers: euroNumbers)
+        let bestByVariant = makeBestTickets(candidates: candidates, euroNumbers: euroNumbers, variants: variants)
 
         var result: [Ticket] = []
         result.reserveCapacity(variants.count)
@@ -236,7 +249,7 @@ final class F2FeatureAnalyzer {
         for variant in variants {
             if variant.mask == 0 {
                 result.append(baseline)
-            } else if let ticket = bestByWeightAndMask[cacheKey(mask: variant.mask, weight: variant.weight)] {
+            } else if let ticket = bestByVariant[variantKey(mask: variant.mask, weight: variant.weight)] {
                 result.append(ticket)
             } else {
                 result.append(baseline)
@@ -260,8 +273,13 @@ final class F2FeatureAnalyzer {
                         for e in (d + 1)..<pool.count {
                             let numbers = [pool[a], pool[b], pool[c], pool[d], pool[e]].sorted()
                             let baseScore = Double(numbers.reduce(0) { $0 + frequencies[$1, default: 0] })
-                            let featureMask = featureMask(for: numbers)
-                            candidates.append(Candidate(numbers: numbers, baseScore: baseScore, featureMask: featureMask))
+                            candidates.append(
+                                Candidate(
+                                    numbers: numbers,
+                                    baseScore: baseScore,
+                                    featureMask: featureMask(for: numbers)
+                                )
+                            )
                         }
                     }
                 }
@@ -271,28 +289,49 @@ final class F2FeatureAnalyzer {
         return candidates
     }
 
-    private func makeBestTickets(candidates: [Candidate], euroNumbers: [Int]) -> [String: Ticket] {
+    private func makeBestTickets(
+        candidates: [Candidate],
+        euroNumbers: [Int],
+        variants: [Variant]
+    ) -> [String: Ticket] {
         var best: [String: (numbers: [Int], score: Double)] = [:]
+        best.reserveCapacity(max(1, variants.count - 1))
 
-        for weight in weights {
+        for variant in variants where variant.mask != 0 {
+            var bestNumbers: [Int]?
+            var bestScore = -Double.infinity
+            let requestedBits = variant.mask.nonzeroBitCount
+
             for candidate in candidates {
-                // A rule match adds one weight step per active feature.
-                let matchedFeatureCount = candidate.featureMask.nonzeroBitCount
-                let score = candidate.baseScore * (1.0 + weight * Double(matchedFeatureCount))
-                let key = cacheKey(mask: candidate.featureMask, weight: weight)
+                let matchedMask = candidate.featureMask & variant.mask
+                let matchedCount = matchedMask.nonzeroBitCount
 
-                if let current = best[key] {
-                    if score > current.score || (score == current.score && candidate.numbers.lexicographicallyPrecedes(current.numbers)) {
-                        best[key] = (candidate.numbers, score)
-                    }
-                } else {
-                    best[key] = (candidate.numbers, score)
+                // Soft weighting: partial matches remain eligible.
+                // Full matches receive the largest feature contribution.
+                let normalizedMatch = Double(matchedCount) / Double(requestedBits)
+                let score = candidate.baseScore * (1.0 + variant.weight * normalizedMatch)
+
+                if score > bestScore {
+                    bestScore = score
+                    bestNumbers = candidate.numbers
+                } else if score == bestScore,
+                          let current = bestNumbers,
+                          candidate.numbers.lexicographicallyPrecedes(current) {
+                    bestNumbers = candidate.numbers
                 }
+            }
+
+            if let bestNumbers {
+                best[variantKey(mask: variant.mask, weight: variant.weight)] = (
+                    bestNumbers,
+                    bestScore
+                )
             }
         }
 
         var result: [String: Ticket] = [:]
         result.reserveCapacity(best.count)
+
         for (key, value) in best {
             result[key] = Ticket(numbers: value.numbers, euroNumbers: euroNumbers)
         }
@@ -326,7 +365,7 @@ final class F2FeatureAnalyzer {
         return mask
     }
 
-    private func cacheKey(mask: Int, weight: Double) -> String {
+    private func variantKey(mask: Int, weight: Double) -> String {
         "\(mask)|\(Int(weight * 100))"
     }
 
@@ -336,7 +375,16 @@ final class F2FeatureAnalyzer {
 
         for (index, result) in results.enumerated() {
             let valAdvantage = result.validation.delta - result.baselineValidation.delta
-            print(String(format: "%2d | %@ | %+.3f | %+.3f | %+.3f", index + 1, result.variant, valAdvantage, result.holdout.delta, result.baselineHoldout.delta))
+            print(
+                String(
+                    format: "%2d | %@ | %+.3f | %+.3f | %+.3f",
+                    index + 1,
+                    result.variant,
+                    valAdvantage,
+                    result.holdout.delta,
+                    result.baselineHoldout.delta
+                )
+            )
         }
     }
 
