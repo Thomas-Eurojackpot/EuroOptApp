@@ -8,6 +8,7 @@ struct ContentView: View {
                 NavigationLink("Statistik") { StatisticsView() }
                 NavigationLink("Optimierer") { OptimizerView() }
                 NavigationLink("9-Tipp-Vergleich") { NineTipComparisonView() }
+                NavigationLink("Alpha + F2-Frequenz") { AlphaFrequencyBlendView() }
                 NavigationLink("Backtest") { BacktestView() }
                 NavigationLink("Simulator") { SimulatorView() }
                 NavigationLink("Hypothesen") { HypothesesView() }
