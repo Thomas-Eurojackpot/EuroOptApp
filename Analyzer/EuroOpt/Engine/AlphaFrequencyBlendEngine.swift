@@ -19,7 +19,7 @@ final class AlphaFrequencyBlendEngine {
     private let holdoutCount = 50
     private let warmup = WeightSweepCore.warmup
     private let recommendationCount = 9
-    private let frequencyWeights = [0, 10, 20, 30]
+    private let frequencyWeights = [0, 5, 10, 15, 20, 25, 30, 35, 40, 50]
 
     func run(draws: [EuroJackpotDraw]) -> AlphaFrequencyBlendResult? {
         guard draws.count > warmup + holdoutCount else { return nil }
@@ -80,8 +80,9 @@ final class AlphaFrequencyBlendEngine {
         }
 
         print("===================================")
-        print("🧪 ALPHA 7.5 + F2-FREQUENZ-TEST")
+        print("🧪 ALPHA 7.5 + F2-FREQUENZ-SWEEP")
         print("Alpha-Profil: P\(String(format: "%02d", winner.id))")
+        print("F2-Anteil: 0 / 5 / 10 / 15 / 20 / 25 / 30 / 35 / 40 / 50 %")
         print("Qualitätswertung = Haupttreffer² + Eurotreffer")
         for variant in variants {
             print(String(format: "%-16@ | %4d Punkte | Ø %.3f | 2+ Haupt: %3d", variant.label, variant.totalPoints, Double(variant.totalPoints) / 450.0, variant.higherHits))
@@ -97,7 +98,7 @@ final class AlphaFrequencyBlendEngine {
         return tickets.map { ticket in
             let main = ticket.numbers.reduce(0.0) { $0 + mainRank[$1, default: 0] } / 5.0
             let euro = ticket.euroNumbers.reduce(0.0) { $0 + euroRank[$1, default: 0] } / 2.0
-            return (main + euro) / 2.0
+            return main
         }
     }
 
