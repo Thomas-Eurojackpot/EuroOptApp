@@ -1,6 +1,6 @@
 import Foundation
 
-/// Isolated F2/50 pair-frequency analysis.
+/// Isolated F2/50 recency-weighted frequency analysis.
 /// F2 remains the unchanged baseline and nothing is fed into production Alpha.
 final class F2FeatureAnalyzer {
     private struct Aggregate {
@@ -24,13 +24,12 @@ final class F2FeatureAnalyzer {
 
     private struct Variant {
         let name: String
-        let weight: Double
+        let recencyPower: Double
     }
 
     private struct Candidate {
         let numbers: [Int]
-        let baseScore: Double
-        let pairScore: Double
+        let score: Double
     }
 
     private struct SplitResult {
@@ -42,34 +41,35 @@ final class F2FeatureAnalyzer {
     }
 
     private let warmup = WeightSweepCore.warmup
-    private let f2Window = 50
-    private let multiWindows = [50, 100, 200, 400]
+    private let window = 50
     private let splitCount = 10
     private let candidatePoolSize = 15
-    private let weights = [0.05, 0.10, 0.15, 0.20, 0.25]
-    private let shrinkage = 10.0
+
+    // 0 = ordinary F2 frequency.
+    // Higher powers increasingly favor the most recent observations.
+    private let powers = [0.00, 0.25, 0.50, 0.75, 1.00, 1.50, 2.00]
 
     func run(draws: [EuroJackpotDraw]) {
         guard draws.count > warmup + 120 else {
-            print("❌ F2-Pair-Test: zu wenige Ziehungen")
+            print("❌ F2-Recency-Test: zu wenige Ziehungen")
             return
         }
 
         let start = Date()
         print("\n===================================")
-        print("🔗 F2/50 PAIR-FREQUENCY ANALYSE")
+        print("⏱ F2/50 RECENCY-FREQUENCY ANALYSE")
         print("===================================")
         print("Warm-up             : \(warmup)")
-        print("F2                  : letzte \(f2Window) Trainingsziehungen")
-        print("Kandidatenpool      : Top \(candidatePoolSize) Hauptzahlen nach F2-Frequenz")
-        print("Paarfenster         : 50 / 100 / 200 / 400")
-        print("Shrinkage           : \(Int(shrinkage))")
-        print("Pair-Gewichte       : 5% / 10% / 15% / 20% / 25%")
+        print("F2                  : letzte \(window) Trainingsziehungen")
+        print("Kandidatenpool      : Top \(candidatePoolSize) Hauptzahlen")
+        print("Recency-Potenz      : 0 / 0.25 / 0.50 / 0.75 / 1.00 / 1.50 / 2.00")
         print("Auswahl             : ausschließlich Validation")
         print("Holdout             : erst nach der Auswahl")
         print("Splits              : \(splitCount) zeitlich getrennte Walk-Forward-Splits\n")
 
-        let variants = weights.map { Variant(name: "F2 + PairConsensus @ \(Int($0 * 100))%", weight: $0) }
+        let variants = powers.map {
+            Variant(name: $0 == 0 ? "F2 + Recency 0.00 (Basis)" : String(format: "F2 + Recency %.2f", $0), recencyPower: $0)
+        }
         var results: [SplitResult] = []
         results.reserveCapacity(splitCount)
 
@@ -93,9 +93,9 @@ final class F2FeatureAnalyzer {
 
             print("Split \(split + 1)/\(splitCount) – Validation ...")
             for index in validationStart..<validationEnd {
-                let tickets = makeTickets(from: Array(draws.prefix(index)), variants: variants)
+                let tickets = makeTickets(from: draws, endIndex: index, variants: variants)
                 let target = draws[index]
-                for i in variants.indices { validation[i].add(ticket: tickets[i + 1], target: target) }
+                for i in variants.indices { validation[i].add(ticket: tickets[i], target: target) }
                 baselineValidation.add(ticket: tickets[0], target: target)
             }
 
@@ -103,9 +103,9 @@ final class F2FeatureAnalyzer {
 
             print("Split \(split + 1)/\(splitCount) – Holdout ...")
             for index in validationEnd..<holdoutEnd {
-                let tickets = makeTickets(from: Array(draws.prefix(index)), variants: variants)
+                let tickets = makeTickets(from: draws, endIndex: index, variants: variants)
                 let target = draws[index]
-                holdout[selected].add(ticket: tickets[selected + 1], target: target)
+                holdout[selected].add(ticket: tickets[selected], target: target)
                 baselineHoldout.add(ticket: tickets[0], target: target)
             }
 
@@ -122,95 +122,72 @@ final class F2FeatureAnalyzer {
         printAggregateResults(results)
         print("\nInterpretation:")
         print("F2/50 bleibt unverändert die Referenz.")
-        print("PairConsensus verändert nur die Rangfolge der F2-Kandidaten.")
-        print("Die Paarstärke wird über 50/100/200/400 Ziehungen gemittelt und gegen die theoretische Paarerwartung geshrinkt.")
-        print("Die Gewichtung wird ausschließlich auf der Validation gewählt.")
+        print("Recency verändert ausschließlich die Gewichtung der 50 F2-Trainingsziehungen.")
+        print("Potenz 0.00 entspricht exakt der normalen F2-Frequenz.")
+        print("Die Variante wird ausschließlich auf der Validation ausgewählt.")
         print("Der Holdout wird erst nach der Auswahl ausgewertet.")
-        print(String(format: "⏱ F2/50 Pair-Frequency-Analyse: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print(String(format: "⏱ F2/50 Recency-Frequency-Analyse: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
     }
 
     private func selectVariant(validation: [Aggregate], baseline: Aggregate) -> Int {
         var best = 0
         var bestScore = -Double.infinity
+
         for i in validation.indices {
             let delta = validation[i].delta - baseline.delta
+            // Mild penalty for negative validation results; baseline remains a safe fallback.
             let score = delta - 0.15 * max(0, -delta)
-            if score > bestScore { bestScore = score; best = i }
+            if score > bestScore {
+                bestScore = score
+                best = i
+            }
         }
         return best
     }
 
-    private func makeTickets(from draws: [EuroJackpotDraw], variants: [Variant]) -> [Ticket] {
-        let source = Array(draws.suffix(f2Window))
-        var main: [Int: Int] = [:]
-        var euro: [Int: Int] = [:]
-        for draw in source {
-            for n in draw.numbers { main[n, default: 0] += 1 }
-            for n in draw.euroNumbers { euro[n, default: 0] += 1 }
+    private func makeTickets(from draws: [EuroJackpotDraw], endIndex: Int, variants: [Variant]) -> [Ticket] {
+        let startIndex = max(0, endIndex - window)
+        let source = Array(draws[startIndex..<endIndex])
+        guard !source.isEmpty else {
+            return variants.map { _ in Ticket(numbers: [], euroNumbers: []) }
         }
 
+        var mainFrequency: [Int: Double] = [:]
+        var euroFrequency: [Int: Double] = [:]
+        let count = source.count
+
+        for (offset, draw) in source.enumerated() {
+            // Older observations receive a smaller linear weight.
+            let position = Double(offset + 1) / Double(count)
+            for number in draw.numbers {
+                mainFrequency[number, default: 0] += position
+            }
+            for number in draw.euroNumbers {
+                euroFrequency[number, default: 0] += position
+            }
+        }
+
+        let ordinaryMain = frequencyMap(draws: source, euro: false)
+        let ordinaryEuro = frequencyMap(draws: source, euro: true)
+
         let rankedMain = (1...50).sorted {
-            main[$0, default: 0] == main[$1, default: 0]
+            ordinaryMain[$0, default: 0] == ordinaryMain[$1, default: 0]
                 ? $0 < $1
-                : main[$0, default: 0] > main[$1, default: 0]
+                : ordinaryMain[$0, default: 0] > ordinaryMain[$1, default: 0]
         }
         let rankedEuro = (1...12).sorted {
-            euro[$0, default: 0] == euro[$1, default: 0]
+            ordinaryEuro[$0, default: 0] == ordinaryEuro[$1, default: 0]
                 ? $0 < $1
-                : euro[$0, default: 0] > euro[$1, default: 0]
+                : ordinaryEuro[$0, default: 0] > ordinaryEuro[$1, default: 0]
         }
 
         let euroNumbers = Array(rankedEuro.prefix(2)).sorted()
-        let baselineNumbers = Array(rankedMain.prefix(5)).sorted()
-        let baseline = Ticket(numbers: baselineNumbers, euroNumbers: euroNumbers)
-        let candidates = makeCandidates(rankedMain: rankedMain, frequencies: main, draws: draws)
-
-        var result = [baseline]
-        result.reserveCapacity(variants.count + 1)
-        for variant in variants {
-            result.append(bestTicket(candidates: candidates, euroNumbers: euroNumbers, weight: variant.weight))
-        }
-        return result
-    }
-
-    private func makeCandidates(rankedMain: [Int], frequencies: [Int: Int], draws: [EuroJackpotDraw]) -> [Candidate] {
         let pool = Array(rankedMain.prefix(candidatePoolSize))
-        guard pool.count >= 5 else { return [] }
-
-        var pairConsensus: [Int: Double] = [:]
-        let expectedProbability = 10.0 / (50.0 * 49.0 / 2.0)
-
-        for requestedWindow in multiWindows {
-            let source = Array(draws.suffix(requestedWindow))
-            let sampleSize = source.count
-            guard sampleSize > 0 else { continue }
-
-            var counts: [Int: Int] = [:]
-            for draw in source {
-                let numbers = draw.numbers.sorted()
-                for i in 0..<(numbers.count - 1) {
-                    for j in (i + 1)..<numbers.count {
-                        let key = numbers[i] * 100 + numbers[j]
-                        counts[key, default: 0] += 1
-                    }
-                }
-            }
-
-            for i in 0..<(pool.count - 1) {
-                for j in (i + 1)..<pool.count {
-                    let a = min(pool[i], pool[j])
-                    let b = max(pool[i], pool[j])
-                    let key = a * 100 + b
-                    let observed = Double(counts[key, default: 0])
-                    let expected = Double(sampleSize) * expectedProbability
-                    let smoothed = (observed + shrinkage * expected) / (Double(sampleSize) + shrinkage)
-                    pairConsensus[key, default: 0] += smoothed / expected
-                }
-            }
+        guard pool.count >= 5 else {
+            return variants.map { _ in Ticket(numbers: Array(pool.prefix(5)).sorted(), euroNumbers: euroNumbers) }
         }
 
-        let denominator = Double(multiWindows.count)
         var candidates: [Candidate] = []
         candidates.reserveCapacity(3003)
 
@@ -220,61 +197,117 @@ final class F2FeatureAnalyzer {
                     for d in (c + 1)..<(pool.count - 1) {
                         for e in (d + 1)..<pool.count {
                             let numbers = [pool[a], pool[b], pool[c], pool[d], pool[e]].sorted()
-                            let base = Double(numbers.reduce(0) { $0 + frequencies[$1, default: 0] })
-                            var pairSum = 0.0
-                            for i in 0..<(numbers.count - 1) {
-                                for j in (i + 1)..<numbers.count {
-                                    let key = numbers[i] * 100 + numbers[j]
-                                    pairSum += pairConsensus[key, default: 1.0] / denominator
-                                }
-                            }
-                            candidates.append(Candidate(numbers: numbers, baseScore: base, pairScore: pairSum / 10.0))
+                            let score = numbers.reduce(0.0) { $0 + mainFrequency[$1, default: 0] }
+                            candidates.append(Candidate(numbers: numbers, score: score))
                         }
                     }
                 }
             }
         }
-        return candidates
+
+        var result: [Ticket] = []
+        result.reserveCapacity(variants.count)
+
+        for variant in variants {
+            let ticket: Ticket
+            if variant.recencyPower == 0 {
+                ticket = bestOrdinaryTicket(pool: pool, frequencies: ordinaryMain, euroNumbers: euroNumbers)
+            } else {
+                ticket = bestRecencyTicket(
+                    candidates: candidates,
+                    ordinaryFrequency: ordinaryMain,
+                    euroNumbers: euroNumbers,
+                    power: variant.recencyPower
+                )
+            }
+            result.append(ticket)
+        }
+
+        return result
     }
 
-    private func bestTicket(candidates: [Candidate], euroNumbers: [Int], weight: Double) -> Ticket {
+    private func frequencyMap(draws: [EuroJackpotDraw], euro: Bool) -> [Int: Int] {
+        var result: [Int: Int] = [:]
+        for draw in draws {
+            for number in (euro ? draw.euroNumbers : draw.numbers) {
+                result[number, default: 0] += 1
+            }
+        }
+        return result
+    }
+
+    private func bestOrdinaryTicket(pool: [Int], frequencies: [Int: Int], euroNumbers: [Int]) -> Ticket {
+        let numbers = pool.sorted {
+            frequencies[$0, default: 0] == frequencies[$1, default: 0]
+                ? $0 < $1
+                : frequencies[$0, default: 0] > frequencies[$1, default: 0]
+        }.prefix(5).sorted()
+        return Ticket(numbers: Array(numbers), euroNumbers: euroNumbers)
+    }
+
+    private func bestRecencyTicket(
+        candidates: [Candidate],
+        ordinaryFrequency: [Int: Int],
+        euroNumbers: [Int],
+        power: Double
+    ) -> Ticket {
         guard let first = candidates.first else { return Ticket(numbers: [], euroNumbers: euroNumbers) }
+
         var best = first
-        var bestScore = first.baseScore * (1.0 + weight * max(0, first.pairScore - 1.0))
+        var bestScore = recencyScore(candidate: first, ordinaryFrequency: ordinaryFrequency, power: power)
+
         for candidate in candidates.dropFirst() {
-            let score = candidate.baseScore * (1.0 + weight * max(0, candidate.pairScore - 1.0))
+            let score = recencyScore(candidate: candidate, ordinaryFrequency: ordinaryFrequency, power: power)
             if score > bestScore || (score == bestScore && candidate.numbers.lexicographicallyPrecedes(best.numbers)) {
                 best = candidate
                 bestScore = score
             }
         }
+
         return Ticket(numbers: best.numbers, euroNumbers: euroNumbers)
     }
 
+    private func recencyScore(candidate: Candidate, ordinaryFrequency: [Int: Int], power: Double) -> Double {
+        // Blend ordinary F2 frequency with a recency-shaped score.
+        // The recency component is normalized against the ordinary frequency
+        // so that the power changes ranking rather than its absolute scale.
+        let ordinary = candidate.numbers.reduce(0.0) { $0 + Double(ordinaryFrequency[$1, default: 0]) }
+        guard ordinary > 0 else { return candidate.score }
+
+        let recencyFactor = pow(candidate.score / max(1.0, ordinary), power)
+        return ordinary * (1.0 + 0.25 * (recencyFactor - 1.0))
+    }
+
     private func printSplitResults(_ results: [SplitResult]) {
-        print("\n## PAIR-FREQUENCY-SPLITS")
+        print("\n## RECENCY-FREQUENCY-SPLITS")
         print("Split | Gewinner | Val Δ ggü F2 | Hold Δ | F2 Hold Δ")
-        for (i, r) in results.enumerated() {
-            let val = r.validation.delta - r.baselineValidation.delta
-            print(String(format: "%2d | %@ | %+.3f | %+.3f | %+.3f", i + 1, r.variant, val, r.holdout.delta, r.baselineHoldout.delta))
+
+        for (i, result) in results.enumerated() {
+            let val = result.validation.delta - result.baselineValidation.delta
+            print(String(format: "%2d | %@ | %+.3f | %+.3f | %+.3f", i + 1, result.variant, val, result.holdout.delta, result.baselineHoldout.delta))
         }
     }
 
     private func printAggregateResults(_ results: [SplitResult]) {
         guard !results.isEmpty else { return }
+
         let selected = results.reduce(0.0) { $0 + $1.holdout.delta } / Double(results.count)
         let f2 = results.reduce(0.0) { $0 + $1.baselineHoldout.delta } / Double(results.count)
         let better = results.filter { $0.holdout.delta > $0.baselineHoldout.delta }.count
         let f2Better = results.filter { $0.holdout.delta < $0.baselineHoldout.delta }.count
-        var counts: [String: Int] = [:]
-        for r in results { counts[r.variant, default: 0] += 1 }
+        let equal = results.count - better - f2Better
 
-        print("\n## PAIR-FREQUENCY – GESAMT")
+        var counts: [String: Int] = [:]
+        for result in results { counts[result.variant, default: 0] += 1 }
+
+        print("\n## RECENCY-FREQUENCY – GESAMT")
         print(String(format: "Gewählte Varianten Hold Δ : %+.3f", selected))
         print(String(format: "F2/50 Hold Δ              : %+.3f", f2))
         print(String(format: "Vorteil ggü. F2           : %+.3f", selected - f2))
         print("Gewählte Variante besser  : \(better)/\(results.count)")
         print("F2 besser                 : \(f2Better)/\(results.count)")
+        print("Gleichstand               : \(equal)/\(results.count)")
+
         print("\n## GEWÄHLTE VARIANTEN")
         for item in counts.sorted(by: { $0.value > $1.value }) {
             print("\(item.key) : \(item.value)/\(results.count)")
