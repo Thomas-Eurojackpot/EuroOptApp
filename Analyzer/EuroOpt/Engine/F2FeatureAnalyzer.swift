@@ -20,7 +20,7 @@ final class F2FeatureAnalyzer {
         }
     }
 
-    private enum Mode: String {
+    private enum Mode: String, CaseIterable {
         case f2 = "F2 (Top5 Frequenz)"
         case pair = "F2 + Pair-Synergy"
         case conditional = "F2 + Conditional-Synergy"
@@ -102,8 +102,6 @@ final class F2FeatureAnalyzer {
         var bestScore = -Double.infinity
         for i in validation.indices {
             let d = validation[i].delta - baseline.delta
-            // Small complexity penalty keeps F2 as the preferred model unless
-            // the combination rule demonstrates a real validation advantage.
             let penalty = i == 0 ? 0.0 : 0.01
             let score = d - penalty - 0.15 * max(0, -d)
             if score > bestScore { bestScore = score; best = i }
@@ -148,16 +146,16 @@ final class F2FeatureAnalyzer {
     private func bestCombination(_ candidates: [[Int]], counts: [Int: Int], pair: [Int: Int], conditional: [Int: Double], mode: CombinationMode) -> [Int] {
         var best = candidates[0]
         var bestScore = -Double.infinity
-        let n = 50.0
-        let draws = 50.0
         for c in candidates {
             var score = c.reduce(0.0) { $0 + Double(counts[$1, default: 0]) }
             var pairSum = 0.0
             var pairCount = 0
-            for i in 0..<c.count { for j in (i + 1)..<c.count {
-                pairSum += Double(pair[c[i] * 51 + c[j], default: 0])
-                pairCount += 1
-            }}
+            for i in 0..<c.count {
+                for j in (i + 1)..<c.count {
+                    pairSum += Double(pair[c[i] * 51 + c[j], default: 0])
+                    pairCount += 1
+                }
+            }
             let pairRate = pairCount > 0 ? pairSum / Double(pairCount) : 0
             let cond = c.reduce(0.0) { $0 + conditional[$1, default: 0] }
             switch mode {
@@ -166,10 +164,8 @@ final class F2FeatureAnalyzer {
             case .conditional:
                 score += 0.20 * cond
             case .robust:
-                // Reward agreement between marginal frequency and dependence,
-                // but shrink the dependence term strongly to avoid overfitting.
                 score += 0.10 * pairRate + 0.10 * cond
-                score -= 0.02 * abs(Double(c.max()! - c.min()! ) - 28.0)
+                score -= 0.02 * abs(Double(c.max()! - c.min()!) - 28.0)
             }
             if score > bestScore || (score == bestScore && c.lexicographicallyPrecedes(best)) {
                 bestScore = score
@@ -195,13 +191,17 @@ final class F2FeatureAnalyzer {
         var r: [Int: Int] = [:]
         for d in draws {
             let ns = d.numbers.sorted()
-            for i in 0..<ns.count { for j in (i + 1)..<ns.count { r[ns[i] * 51 + ns[j], default: 0] += 1 } }
+            for i in 0..<ns.count {
+                for j in (i + 1)..<ns.count {
+                    r[ns[i] * 51 + ns[j], default: 0] += 1
+                }
+            }
         }
         return r
     }
 
     private func conditionalScores(source: [EuroJackpotDraw], pool: [Int], counts: [Int: Int]) -> [Int: Double] {
-        var pair = pairCounts(source)
+        let pair = pairCounts(source)
         var r: [Int: Double] = [:]
         for n in pool {
             var total = 0.0
@@ -224,7 +224,9 @@ final class F2FeatureAnalyzer {
             for b in (a + 1)..<(pool.count - 3) {
                 for c in (b + 1)..<(pool.count - 2) {
                     for d in (c + 1)..<(pool.count - 1) {
-                        for e in (d + 1)..<pool.count { result.append([pool[a], pool[b], pool[c], pool[d], pool[e]].sorted()) }
+                        for e in (d + 1)..<pool.count {
+                            result.append([pool[a], pool[b], pool[c], pool[d], pool[e]].sorted())
+                        }
                     }
                 }
             }
