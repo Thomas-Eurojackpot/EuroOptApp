@@ -1,46 +1,143 @@
 import Foundation
 
-struct AlphaFrequencyBlendResult {
+struct AlphaFrequencyConfirmationResult {
     struct VariantResult {
         let label: String
-        let frequencyPercent: Int
-        let concentrationPercent: Int
-        let classes: [Int]
         let totalPoints: Int
-        let mainHits: Int
-        let euroHits: Int
         let higherHits: Int
+        let classes: [Int]
     }
+
+    struct WindowResult {
+        let windowNumber: Int
+        let alphaProfileID: Int
+        let alphaPoints: Int
+        let blendPoints: Int
+        let alphaHigherHits: Int
+        let blendHigherHits: Int
+    }
+
     let holdoutDraws: Int
-    let alphaProfileID: Int
+    let windows: [WindowResult]
     let variants: [VariantResult]
 }
 
 final class AlphaFrequencyBlendEngine {
-    private let holdoutCount = 50
+    private let windowSize = 50
+    private let windowCount = 3
     private let warmup = WeightSweepCore.warmup
     private let recommendationCount = 9
-    private let variants: [(Int, Int)] = [
-        (0, 0),
-        (5, 0),
-        (5, 10),
-        (5, 20),
-        (5, 30),
-        (5, 40),
-        (5, 50),
-        (15, 0),
-        (15, 20),
-        (15, 40)
-    ]
+    private let f2Percent = 5
+    private let concentrationPercent = 30
 
-    func run(draws: [EuroJackpotDraw]) -> AlphaFrequencyBlendResult? {
-        guard draws.count > warmup + holdoutCount else { return nil }
-        let holdoutStart = draws.count - holdoutCount
-        let validationEnd = warmup + (holdoutStart - warmup) / 2
-        let profiles = WeightSweepCore.makeProfiles()
+    func run(draws: [EuroJackpotDraw]) -> AlphaFrequencyConfirmationResult? {
+        let totalHoldout = windowSize * windowCount
+        guard draws.count > warmup + totalHoldout else { return nil }
+
+        let holdoutStart = draws.count - totalHoldout
+        var windowResults: [AlphaFrequencyConfirmationResult.WindowResult] = []
+        var alphaAccumulator = HitAccumulator()
+        var blendAccumulator = HitAccumulator()
+
+        for window in 0..<windowCount {
+            let windowStart = holdoutStart + window * windowSize
+            let windowEnd = windowStart + windowSize
+            guard windowStart > warmup else { continue }
+
+            let profiles = WeightSweepCore.makeProfiles()
+            let winnerIndex = selectAlphaProfile(profiles: profiles, draws: draws, validationEnd: windowStart)
+            let winner = profiles[winnerIndex]
+            let generator = TicketGenerator()
+            let candidateCount = WeightSweepCore.candidateCount()
+
+            var windowAlpha = HitAccumulator()
+            var windowBlend = HitAccumulator()
+
+            for index in windowStart..<windowEnd {
+                let training = Array(draws.prefix(index))
+                let target = draws[index]
+                let candidates = generator.generate(
+                    count: candidateCount,
+                    draws: training,
+                    goal: OptimizationGoal(),
+                    hillClimbingIterations: 0
+                )
+                let cache = ScoreCache(draws: training)
+                let alphaEngine = ScoreEngine(cache: cache, goal: winner.goal)
+                let alphaScores = normalize(candidates.map { alphaEngine.score(ticket: $0) })
+                let frequencyScores = normalize(frequencyScores(for: candidates, draws: training))
+                let concentrationScores = normalize(mainConcentrationScores(for: candidates, draws: training))
+
+                let blend = candidates.indices.map { candidateIndex in
+                    let f2 = Double(f2Percent) / 100.0
+                    let concentration = Double(concentrationPercent) / 100.0
+                    let alpha = max(0.0, 1.0 - f2 - concentration)
+                    return alpha * alphaScores[candidateIndex]
+                        + f2 * frequencyScores[candidateIndex]
+                        + concentration * concentrationScores[candidateIndex]
+                }
+
+                let alphaTickets = select(candidates: candidates, scores: alphaScores, limit: recommendationCount)
+                let blendTickets = select(candidates: candidates, scores: blend, limit: recommendationCount)
+                windowAlpha.add(tickets: alphaTickets, target: target)
+                windowBlend.add(tickets: blendTickets, target: target)
+                alphaAccumulator.add(tickets: alphaTickets, target: target)
+                blendAccumulator.add(tickets: blendTickets, target: target)
+            }
+
+            windowResults.append(.init(
+                windowNumber: window + 1,
+                alphaProfileID: winner.id,
+                alphaPoints: windowAlpha.points,
+                blendPoints: windowBlend.points,
+                alphaHigherHits: windowAlpha.higherHits,
+                blendHigherHits: windowBlend.higherHits
+            ))
+        }
+
+        let variants = [
+            AlphaFrequencyConfirmationResult.VariantResult(
+                label: "Alpha 7.5",
+                totalPoints: alphaAccumulator.points,
+                higherHits: alphaAccumulator.higherHits,
+                classes: alphaAccumulator.classes
+            ),
+            AlphaFrequencyConfirmationResult.VariantResult(
+                label: "Alpha + F2 5% + Konzentration 30%",
+                totalPoints: blendAccumulator.points,
+                higherHits: blendAccumulator.higherHits,
+                classes: blendAccumulator.classes
+            )
+        ]
+
+        print("===================================")
+        print("🧪 ALPHA + F2-BESTÄTIGUNGSTEST")
+        print("===================================")
+        print("Fenster: \(windowCount) × \(windowSize) = \(totalHoldout) Ziehungen")
+        print("Vergleich: Alpha 7.5 vs. Alpha + F2 5% + Konzentration 30%")
+        print("Jedes Fenster wählt sein Alpha-Profil nur aus der vorher verfügbaren Historie.")
+        print("")
+        for window in windowResults {
+            print(String(format: "Fenster %d | P%02d | Alpha %4d P / 2+ %2d | F2+Kon %4d P / 2+ %2d", window.windowNumber, window.alphaProfileID, window.alphaPoints, window.alphaHigherHits, window.blendPoints, window.blendHigherHits))
+        }
+        print("")
+        for result in variants {
+            print(String(format: "%-42@ | %4d Punkte | Ø %.3f | 2+ Haupt: %3d", result.label, result.totalPoints, Double(result.totalPoints) / Double(totalHoldout * recommendationCount), result.higherHits))
+        }
+        print("===================================")
+
+        return AlphaFrequencyConfirmationResult(
+            holdoutDraws: totalHoldout,
+            windows: windowResults,
+            variants: variants
+        )
+    }
+
+    private func selectAlphaProfile(profiles: [WeightSweepProfile], draws: [EuroJackpotDraw], validationEnd: Int) -> Int {
+        guard validationEnd > warmup else { return 0 }
         let generator = TicketGenerator()
         let candidateCount = WeightSweepCore.candidateCount()
-        var validationTotals = Array(repeating: ValidationAggregate(), count: profiles.count)
+        var totals = Array(repeating: ValidationAggregate(), count: profiles.count)
 
         for index in warmup..<validationEnd {
             let training = Array(draws.prefix(index))
@@ -50,73 +147,11 @@ final class AlphaFrequencyBlendEngine {
             let engines = profiles.map { ScoreEngine(cache: cache, goal: $0.goal) }
             for profileIndex in profiles.indices {
                 let tickets = WeightSweepCore.bestTickets(candidates: candidates, scoreEngine: engines[profileIndex], limit: recommendationCount)
-                validationTotals[profileIndex].add(tickets: tickets, target: target)
+                totals[profileIndex].add(tickets: tickets, target: target)
             }
         }
 
-        guard let winnerIndex = profiles.indices.max(by: { validationTotals[$0].score < validationTotals[$1].score }) else { return nil }
-        let winner = profiles[winnerIndex]
-        var accumulators = variants.map { _ in HitAccumulator() }
-
-        for index in holdoutStart..<draws.count {
-            let training = Array(draws.prefix(index))
-            let target = draws[index]
-            let candidates = generator.generate(count: candidateCount, draws: training, goal: OptimizationGoal(), hillClimbingIterations: 0)
-            let cache = ScoreCache(draws: training)
-            let alphaEngine = ScoreEngine(cache: cache, goal: winner.goal)
-            let alphaNormalized = normalize(candidates.map { alphaEngine.score(ticket: $0) })
-            let frequency = frequencyScores(for: candidates, draws: training)
-            let frequencyNormalized = normalize(frequency)
-            let concentration = mainConcentrationScores(for: candidates, draws: training)
-            let concentrationNormalized = normalize(concentration)
-
-            for (variantIndex, variant) in variants.enumerated() {
-                let f2Blend = Double(variant.0) / 100.0
-                let concentrationBlend = Double(variant.1) / 100.0
-                let blended = candidates.indices.map {
-                    let alphaWeight = max(0.0, 1.0 - f2Blend - concentrationBlend)
-                    return alphaWeight * alphaNormalized[$0]
-                        + f2Blend * frequencyNormalized[$0]
-                        + concentrationBlend * concentrationNormalized[$0]
-                }
-                let tickets = select(candidates: candidates, scores: blended, limit: recommendationCount)
-                accumulators[variantIndex].add(tickets: tickets, target: target)
-            }
-        }
-
-        let results = variants.indices.map { index in
-            let variant = variants[index]
-            let a = accumulators[index]
-            let points = a.classes.enumerated().reduce(0) { total, item in
-                let main = item.offset / 3
-                let euro = item.offset % 3
-                return total + main * main * item.element + euro * item.element
-            }
-            return AlphaFrequencyBlendResult.VariantResult(
-                label: variant.0 == 0 && variant.1 == 0
-                    ? "Alpha 7.5"
-                    : "Alpha + F2 \(variant.0)% + Konzentration \(variant.1)%",
-                frequencyPercent: variant.0,
-                concentrationPercent: variant.1,
-                classes: a.classes,
-                totalPoints: points,
-                mainHits: a.mainHits,
-                euroHits: a.euroHits,
-                higherHits: a.classes.enumerated().filter { $0.offset / 3 >= 2 }.reduce(0) { $0 + $1.element }
-            )
-        }
-
-        print("===================================")
-        print("🧪 ALPHA + F2-HAUPTZAHL-KONZENTRATION")
-        print("Alpha-Profil: P\(String(format: "%02d", winner.id))")
-        print("F2 wirkt nur auf die Hauptzahlen; Konzentration belohnt hoch gerankte Hauptzahlen")
-        print("Qualitätswertung = Haupttreffer² + Eurotreffer")
-        for result in results {
-            print(String(format: "%-42@ | %4d Punkte | Ø %.3f | 2+ Haupt: %3d", result.label, result.totalPoints, Double(result.totalPoints) / 450.0, result.higherHits))
-        }
-        print("===================================")
-
-        return AlphaFrequencyBlendResult(holdoutDraws: holdoutCount, alphaProfileID: winner.id, variants: results)
+        return profiles.indices.max(by: { totals[$0].score < totals[$1].score }) ?? 0
     }
 
     private func frequencyScores(for tickets: [Ticket], draws: [EuroJackpotDraw]) -> [Double] {
@@ -131,11 +166,7 @@ final class AlphaFrequencyBlendEngine {
         return tickets.map { ticket in
             let ranks = ticket.numbers.map { mainRank[$0, default: 0] }.sorted(by: >)
             guard ranks.count == 5 else { return 0.0 }
-            return ranks[0] * 0.35
-                + ranks[1] * 0.25
-                + ranks[2] * 0.20
-                + ranks[3] * 0.12
-                + ranks[4] * 0.08
+            return ranks[0] * 0.35 + ranks[1] * 0.25 + ranks[2] * 0.20 + ranks[3] * 0.12 + ranks[4] * 0.08
         }
     }
 
@@ -195,6 +226,14 @@ final class AlphaFrequencyBlendEngine {
         var classes = Array(repeating: 0, count: 18)
         var mainHits = 0
         var euroHits = 0
+        var tickets = 0
+        var points: Int { classes.enumerated().reduce(0) { total, item in
+            let main = item.offset / 3
+            let euro = item.offset % 3
+            return total + main * main * item.element + euro * item.element
+        } }
+        var higherHits: Int { classes.enumerated().filter { $0.offset / 3 >= 2 }.reduce(0) { $0 + $1.element } }
+
         mutating func add(tickets: [Ticket], target: EuroJackpotDraw) {
             for ticket in tickets {
                 let main = Set(ticket.numbers).intersection(target.numbers).count
@@ -203,6 +242,7 @@ final class AlphaFrequencyBlendEngine {
                 mainHits += main
                 euroHits += euro
             }
+            self.tickets += tickets.count
         }
     }
 }
