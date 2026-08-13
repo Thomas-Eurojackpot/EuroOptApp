@@ -1,8 +1,8 @@
 import Foundation
 
-/// F2 feature analysis and validation-only feature-conditioned variants.
-/// F2 itself is never changed. Every variant is selected on validation only,
-/// then evaluated unchanged on the subsequent holdout.
+/// F2 feature analysis with soft feature weighting.
+/// F2 remains the unchanged baseline. Features modify the F2 frequency ranking
+/// only by a limited weight; variants are selected on validation only.
 final class F2FeatureAnalyzer {
     private struct Aggregate {
         var hits = 0
@@ -20,7 +20,8 @@ final class F2FeatureAnalyzer {
             expectedEuroHits += WeightSweepCore.expectedEuroHits(for: target.date, ticketCount: 1)
         }
     }
-    private struct Variant { let name: String; let rules: [Rule] }
+
+    private struct Variant { let name: String; let rules: [Rule]; let weight: Double }
     private enum Rule { case sum(Int); case even(Int); case high(Int); case consecutive(Int); case spread(Int) }
     private struct SplitResult {
         let variant: String
@@ -29,6 +30,7 @@ final class F2FeatureAnalyzer {
         let baselineValidation: Aggregate
         let baselineHoldout: Aggregate
     }
+
     private let warmup = WeightSweepCore.warmup
     private let window = 50
     private let splitCount = 10
@@ -38,12 +40,14 @@ final class F2FeatureAnalyzer {
         guard draws.count > warmup + 120 else { print("❌ F2-Feature-Test: zu wenige Ziehungen"); return }
         let start = Date()
         print("\n===================================")
-        print("🔎 F2/50 FEATURE-KOMBINATIONSANALYSE")
+        print("🔎 F2/50 SOFT-FEATURE-WEIGHT ANALYSE")
         print("===================================")
         print("Warm-up             : \(warmup)")
         print("F2                  : letzte \(window) Trainingsziehungen")
         print("Kandidatenpool      : Top \(candidatePoolSize) Hauptzahlen nach F2-Frequenz")
-        print("Varianten            : F2 + einzelne Features + Feature-Kombinationen")
+        print("Features            : Summe / Gerade / Hoch / Adjacent / Spread")
+        print("Gewichte            : 5% / 10% / 15% / 20% / 25%")
+        print("Varianten            : einzelne Features + Feature-Kombinationen")
         print("Auswahl             : ausschließlich Validation")
         print("Holdout             : erst nach der Auswahl")
         print("Splits               : \(splitCount) zeitlich getrennte Walk-Forward-Splits\n")
@@ -90,24 +94,31 @@ final class F2FeatureAnalyzer {
         printAggregateResults(splitResults)
         print("\nInterpretation:")
         print("F2 bleibt unverändert die Basis.")
-        print("Feature-Varianten werden ausschließlich auf der jeweiligen Validation ausgewählt.")
-        print("Der Holdout wird erst danach mit derselben ausgewählten Variante ausgewertet.")
-        print("Eine gute Variante muss wiederholt gegen F2 bestehen; einzelne starke Holdout-Splits reichen nicht aus.")
-        print(String(format: "⏱ F2-Feature-Kombinationsanalyse: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print("Features wirken nur als weiche Gewichtung und ersetzen F2 nicht durch harte Filter.")
+        print("Die Gewichtung wird ausschließlich auf der Validation ausgewählt.")
+        print("Der Holdout wird erst danach mit der ausgewählten Variante ausgewertet.")
+        print(String(format: "⏱ F2-Soft-Feature-Analyse: %.2f Sekunden", Date().timeIntervalSince(start)))
         print("===================================")
     }
 
     private func makeVariants() -> [Variant] {
-        var variants: [Variant] = [Variant(name: "F2", rules: [])]
+        var variants: [Variant] = [Variant(name: "F2", rules: [], weight: 0)]
         let singles: [(String, Rule)] = [
             ("Sum100–124", .sum(1)), ("Even2", .even(2)), ("High2", .high(2)),
             ("Adj0", .consecutive(0)), ("Spread20–29", .spread(1)),
             ("Spread30–39", .spread(2)), ("Spread40+", .spread(3))
         ]
-        for item in singles { variants.append(Variant(name: "F2 + \(item.0)", rules: [item.1])) }
+        let weights = [0.05, 0.10, 0.15, 0.20, 0.25]
+        for item in singles {
+            for weight in weights {
+                variants.append(Variant(name: "F2 + \(item.0) @ \(Int(weight * 100))%", rules: [item.1], weight: weight))
+            }
+        }
         for i in 0..<singles.count {
             for j in (i + 1)..<singles.count {
-                variants.append(Variant(name: "F2 + \(singles[i].0) + \(singles[j].0)", rules: [singles[i].1, singles[j].1]))
+                for weight in weights {
+                    variants.append(Variant(name: "F2 + \(singles[i].0) + \(singles[j].0) @ \(Int(weight * 100))%", rules: [singles[i].1, singles[j].1], weight: weight))
+                }
             }
         }
         return variants
@@ -139,12 +150,12 @@ final class F2FeatureAnalyzer {
         result.reserveCapacity(variants.count)
         for variant in variants {
             if variant.rules.isEmpty { result.append(baseline) }
-            else { result.append(bestTicket(rankedMain: rankedMain, rankedEuro: rankedEuro, frequencies: main, rules: variant.rules, fallback: baseline)) }
+            else { result.append(weightedBestTicket(rankedMain: rankedMain, rankedEuro: rankedEuro, frequencies: main, rules: variant.rules, weight: variant.weight, fallback: baseline)) }
         }
         return result
     }
 
-    private func bestTicket(rankedMain: [Int], rankedEuro: [Int], frequencies: [Int: Int], rules: [Rule], fallback: Ticket) -> Ticket {
+    private func weightedBestTicket(rankedMain: [Int], rankedEuro: [Int], frequencies: [Int: Int], rules: [Rule], weight: Double, fallback: Ticket) -> Ticket {
         let pool = Array(rankedMain.prefix(candidatePoolSize))
         var best: ([Int], Double)?
         if pool.count >= 5 {
@@ -154,9 +165,10 @@ final class F2FeatureAnalyzer {
                         for d in (c + 1)..<(pool.count - 1) {
                             for e in (d + 1)..<pool.count {
                                 let numbers = [pool[a], pool[b], pool[c], pool[d], pool[e]].sorted()
-                                guard matches(numbers: numbers, rules: rules) else { continue }
-                                let score = Double(numbers.reduce(0) { $0 + frequencies[$1, default: 0] })
-                                if best == nil || score > best!.1 || (score == best!.1 && numbers.lexicographicallyPrecedes(best!.0)) { best = (numbers, score) }
+                                let baseScore = Double(numbers.reduce(0) { $0 + frequencies[$1, default: 0] })
+                                let matches = rules.reduce(0) { partial, rule in partial + (matchesRule(numbers: numbers, rule: rule) ? 1 : 0) }
+                                let adjustedScore = baseScore * (1.0 + weight * Double(matches))
+                                if best == nil || adjustedScore > best!.1 || (adjustedScore == best!.1 && numbers.lexicographicallyPrecedes(best!.0)) { best = (numbers, adjustedScore) }
                             }
                         }
                     }
@@ -167,23 +179,20 @@ final class F2FeatureAnalyzer {
         return Ticket(numbers: best.0, euroNumbers: Array(rankedEuro.prefix(2)).sorted())
     }
 
-    private func matches(numbers: [Int], rules: [Rule]) -> Bool {
+    private func matchesRule(numbers: [Int], rule: Rule) -> Bool {
         let sum = numbers.reduce(0, +)
         let even = numbers.filter { $0.isMultiple(of: 2) }.count
         let high = numbers.filter { $0 >= 26 }.count
         var adjacent = 0
         if numbers.count > 1 { for index in 1..<numbers.count where numbers[index] == numbers[index - 1] + 1 { adjacent += 1 } }
         let spread = (numbers.max() ?? 0) - (numbers.min() ?? 0)
-        for rule in rules {
-            switch rule {
-            case .sum(let bucket): if !matchesSum(sum, bucket: bucket) { return false }
-            case .even(let value): if even != value { return false }
-            case .high(let value): if high != value { return false }
-            case .consecutive(let value): if adjacent != value { return false }
-            case .spread(let bucket): if !matchesSpread(spread, bucket: bucket) { return false }
-            }
+        switch rule {
+        case .sum(let bucket): return matchesSum(sum, bucket: bucket)
+        case .even(let value): return even == value
+        case .high(let value): return high == value
+        case .consecutive(let value): return adjacent == value
+        case .spread(let bucket): return matchesSpread(spread, bucket: bucket)
         }
-        return true
     }
 
     private func matchesSum(_ sum: Int, bucket: Int) -> Bool {
@@ -209,7 +218,7 @@ final class F2FeatureAnalyzer {
     }
 
     private func printSplitResults(_ results: [SplitResult]) {
-        print("\n## FEATURE-SPLITS")
+        print("\n## SOFT-FEATURE-SPLITS")
         print("Split | Gewinner | Val Δ ggü F2 | Hold Δ | F2 Hold Δ")
         for (index, result) in results.enumerated() {
             let valAdvantage = result.validation.delta - result.baselineValidation.delta
@@ -233,7 +242,7 @@ final class F2FeatureAnalyzer {
         }
         let selectedAverage = holdSum / Double(results.count)
         let f2Average = f2HoldSum / Double(results.count)
-        print("\n## FEATURE-KOMBINATIONEN – GESAMT")
+        print("\n## SOFT-FEATURE – GESAMT")
         print(String(format: "Gewählte Varianten Hold Δ : %+.3f", selectedAverage))
         print(String(format: "F2/50 Hold Δ              : %+.3f", f2Average))
         print(String(format: "Vorteil ggü. F2           : %+.3f", selectedAverage - f2Average))
