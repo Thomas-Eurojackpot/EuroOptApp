@@ -16,10 +16,10 @@ extension OptimizerViewModel {
 
         let draws = DrawDatabase().allDraws()
         print("===================================")
-        print("🔎 F2/50 FEATURE-ANALYSE")
+        print("🔗 F2/50 KORRELATIONS-ANALYSE")
         print("===================================")
         DispatchQueue.global(qos: .userInitiated).async {
-            F2FeatureAnalyzer().run(draws: draws)
+            F2CorrelationAnalyzer().run(draws: draws)
         }
     }
 }
