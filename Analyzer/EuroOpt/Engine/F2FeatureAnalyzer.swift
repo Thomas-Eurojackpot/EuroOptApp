@@ -181,8 +181,11 @@ final class F2FeatureAnalyzer {
         var pairConsensus: [Int: Double] = [:]
         let expectedProbability = 10.0 / (50.0 * 49.0 / 2.0)
 
-        for window in multiWindows {
-            let source = Array(draws.suffix(window))
+        for requestedWindow in multiWindows {
+            let source = Array(draws.suffix(requestedWindow))
+            let sampleSize = source.count
+            guard sampleSize > 0 else { continue }
+
             var counts: [Int: Int] = [:]
             for draw in source {
                 let numbers = draw.numbers.sorted()
@@ -200,8 +203,8 @@ final class F2FeatureAnalyzer {
                     let b = max(pool[i], pool[j])
                     let key = a * 100 + b
                     let observed = Double(counts[key, default: 0])
-                    let expected = Double(window) * expectedProbability
-                    let smoothed = (observed + shrinkage * expected) / (Double(window) + shrinkage)
+                    let expected = Double(sampleSize) * expectedProbability
+                    let smoothed = (observed + shrinkage * expected) / (Double(sampleSize) + shrinkage)
                     pairConsensus[key, default: 0] += smoothed / expected
                 }
             }
