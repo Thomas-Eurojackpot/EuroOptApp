@@ -1,56 +1,23 @@
 import SwiftUI
 
 struct ContentView: View {
-
     var body: some View {
-
         NavigationSplitView {
-
             List {
-
-                NavigationLink("🏠 Dashboard") {
-                    DashboardView2()
-                }
-
-                NavigationLink("📊 Statistik") {
-                    StatisticsView()
-                }
-
-                NavigationLink("🧮 Optimierer") {
-                    OptimizerView()
-                }
-
-                NavigationLink("🧪 Backtest") {
-                    BacktestView()
-                }
-
-                NavigationLink("🎯 Simulator") {
-                    SimulatorView()
-                }
-
-                NavigationLink("🌕 Hypothesen") {
-                    HypothesesView()
-                }
-
-                NavigationLink("⚙️ Einstellungen") {
-                    SettingsView()
-                }
-
+                NavigationLink("Dashboard") { DashboardView2() }
+                NavigationLink("Statistik") { StatisticsView() }
+                NavigationLink("Optimierer") { OptimizerView() }
+                NavigationLink("9-Tipp-Vergleich") { NineTipComparisonView() }
+                NavigationLink("Backtest") { BacktestView() }
+                NavigationLink("Simulator") { SimulatorView() }
+                NavigationLink("Hypothesen") { HypothesesView() }
+                NavigationLink("Einstellungen") { SettingsView() }
             }
             .navigationTitle("EuroOpt")
-
         } detail: {
-
             DashboardView2()
-
         }
-
     }
-
 }
 
-#Preview {
-
-    ContentView()
-
-}
+#Preview { ContentView() }
