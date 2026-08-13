@@ -2,19 +2,19 @@ import SwiftUI
 
 struct AlphaFrequencyBlendView: View {
     @State private var running = false
-    @State private var result: AlphaFrequencyBlendResult?
+    @State private var result: AlphaFrequencyConfirmationResult?
     @State private var status = "Noch kein Test gestartet"
     private let database = DrawDatabase()
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("🧪 Alpha + F2-Frequenz").font(.largeTitle).bold()
-                Text("Alpha 7.5 bleibt unverändert – nur die Kandidatenauswahl wird mit F2-Frequenz gemischt.").foregroundStyle(.secondary)
-                Text("Varianten: Alpha 0 %, +10 %, +20 %, +30 % F2 · letzte 50 Holdout-Ziehungen").font(.footnote).foregroundStyle(.secondary)
+                Text("🧪 Alpha + F2-Bestätigung").font(.largeTitle).bold()
+                Text("Alpha 7.5 vs. Alpha + 5% F2 + 30% Konzentration – drei getrennte 50er-Holdout-Fenster.").foregroundStyle(.secondary)
+                Text("Jedes Fenster wählt sein Alpha-Profil nur aus der vorher verfügbaren Historie.").font(.footnote).foregroundStyle(.secondary)
                 Button { run() } label: {
                     if running { ProgressView().frame(maxWidth: .infinity) }
-                    else { Label("Alpha + F2-Test starten", systemImage: "chart.bar.xaxis").frame(maxWidth: .infinity) }
+                    else { Label("Bestätigungstest starten", systemImage: "chart.bar.xaxis").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(running)
@@ -23,21 +23,40 @@ struct AlphaFrequencyBlendView: View {
             }
             .padding()
         }
-        .navigationTitle("Alpha + F2-Frequenz")
+        .navigationTitle("Alpha + F2-Bestätigung")
     }
 
-    private func table(_ result: AlphaFrequencyBlendResult) -> some View {
-        GroupBox("Qualitätswertung") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Alpha-Gewinner: P\(String(format: "%02d", result.alphaProfileID))").bold()
+    private func table(_ result: AlphaFrequencyConfirmationResult) -> some View {
+        GroupBox("Mehrfenster-Bestätigung") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Fenstergebnisse").font(.headline)
+                HStack {
+                    Text("Fenster").frame(width: 65, alignment: .leading)
+                    Text("Profil").frame(width: 65, alignment: .leading)
+                    Text("Alpha").frame(width: 95, alignment: .trailing)
+                    Text("F2 + Kon.").frame(width: 105, alignment: .trailing)
+                    Text("2+ A").frame(width: 65, alignment: .trailing)
+                    Text("2+ F2").frame(maxWidth: .infinity, alignment: .trailing)
+                }.font(.caption).bold()
+                ForEach(result.windows, id: \.windowNumber) { window in
+                    HStack {
+                        Text("\(window.windowNumber)").frame(width: 65, alignment: .leading)
+                        Text("P\(String(format: "%02d", window.alphaProfileID))").frame(width: 65, alignment: .leading)
+                        Text("\(window.alphaPoints) P").frame(width: 95, alignment: .trailing)
+                        Text("\(window.blendPoints) P").frame(width: 105, alignment: .trailing)
+                        Text("\(window.alphaHigherHits)").frame(width: 65, alignment: .trailing)
+                        Text("\(window.blendHigherHits)").frame(maxWidth: .infinity, alignment: .trailing)
+                    }.font(.system(.body, design: .monospaced))
+                }
+                Divider()
+                Text("Gesamtwertung").font(.headline)
                 ForEach(result.variants, id: \.label) { variant in
                     HStack {
-                        Text(variant.label).frame(width: 130, alignment: .leading)
-                        Text("\(variant.totalPoints) P").frame(width: 70, alignment: .trailing)
-                        Text(String(format: "Ø %.3f", Double(variant.totalPoints) / 450.0)).frame(width: 75, alignment: .trailing)
+                        Text(variant.label).frame(width: 230, alignment: .leading)
+                        Text("\(variant.totalPoints) P").frame(width: 80, alignment: .trailing)
+                        Text(String(format: "Ø %.3f", Double(variant.totalPoints) / Double(result.holdoutDraws * 9))).frame(width: 85, alignment: .trailing)
                         Text("2+ Haupt: \(variant.higherHits)").frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                    .font(.system(.body, design: .monospaced))
+                    }.font(.system(.body, design: .monospaced))
                 }
                 Divider()
                 Text("Trefferklassen").font(.headline)
@@ -56,11 +75,11 @@ struct AlphaFrequencyBlendView: View {
     }
 
     private func run() {
-        running = true; result = nil; status = "Test läuft..."
+        running = true; result = nil; status = "Mehrfenster-Test läuft..."
         let draws = database.allDraws()
         DispatchQueue.global(qos: .userInitiated).async {
             let r = AlphaFrequencyBlendEngine().run(draws: draws)
-            DispatchQueue.main.async { result = r; status = r == nil ? "Zu wenige Ziehungen." : "Test beendet."; running = false }
+            DispatchQueue.main.async { result = r; status = r == nil ? "Zu wenige Ziehungen." : "Bestätigungstest beendet."; running = false }
         }
     }
 }
