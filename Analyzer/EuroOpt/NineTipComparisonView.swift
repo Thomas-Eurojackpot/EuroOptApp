@@ -43,6 +43,15 @@ struct NineTipComparisonView: View {
                     Text("\(p.name): Ø Haupt \(String(format: "%.3f", p.mainAverage)) | Ø Euro \(String(format: "%.3f", p.euroAverage))")
                         .font(.footnote)
                 }
+                Divider()
+                Text("Qualitätswertung").font(.headline)
+                Text("Punkte = Haupttreffer² + Eurotreffer").font(.footnote).foregroundStyle(.secondary)
+                ForEach(result.players, id: \.name) { p in
+                    let points = qualityPoints(for: p)
+                    let average = Double(points) / Double(p.total)
+                    Text("\(p.name): \(points) Punkte | Ø \(String(format: "%.3f", average)) | \(String(format: "%.1f%%", relativeQuality(points, players: result.players))) von Alpha")
+                        .font(.footnote)
+                }
             }
         }
     }
@@ -50,6 +59,21 @@ struct NineTipComparisonView: View {
     private func cell(_ player: NineTipComparisonResult.PlayerResult, _ index: Int) -> some View {
         VStack(alignment: .trailing) { Text("\(player.classes[index])"); Text(String(format: "%.1f%%", player.percentages[index])).font(.caption).foregroundStyle(.secondary) }
             .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func qualityPoints(for player: NineTipComparisonResult.PlayerResult) -> Int {
+        player.classes.enumerated().reduce(0) { total, item in
+            let main = item.offset / 3
+            let euro = item.offset % 3
+            return total + item.element * (main * main + euro)
+        }
+    }
+
+    private func relativeQuality(_ points: Int, players: [NineTipComparisonResult.PlayerResult]) -> Double {
+        guard let alpha = players.first(where: { $0.name == "Alpha 7.5" }) else { return 0 }
+        let alphaPoints = qualityPoints(for: alpha)
+        guard alphaPoints > 0 else { return 0 }
+        return Double(points) * 100.0 / Double(alphaPoints)
     }
 
     private func run() {
