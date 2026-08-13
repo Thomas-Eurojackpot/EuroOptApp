@@ -4,6 +4,7 @@ struct AlphaFrequencyBlendResult {
     struct VariantResult {
         let label: String
         let frequencyPercent: Int
+        let concentrationPercent: Int
         let classes: [Int]
         let totalPoints: Int
         let mainHits: Int
@@ -19,7 +20,18 @@ final class AlphaFrequencyBlendEngine {
     private let holdoutCount = 50
     private let warmup = WeightSweepCore.warmup
     private let recommendationCount = 9
-    private let frequencyWeights = [0, 5, 10, 15, 20, 25, 30, 35, 40, 50]
+    private let variants: [(Int, Int)] = [
+        (0, 0),
+        (5, 0),
+        (5, 10),
+        (5, 20),
+        (5, 30),
+        (5, 40),
+        (5, 50),
+        (15, 0),
+        (15, 20),
+        (15, 40)
+    ]
 
     func run(draws: [EuroJackpotDraw]) -> AlphaFrequencyBlendResult? {
         guard draws.count > warmup + holdoutCount else { return nil }
@@ -44,7 +56,7 @@ final class AlphaFrequencyBlendEngine {
 
         guard let winnerIndex = profiles.indices.max(by: { validationTotals[$0].score < validationTotals[$1].score }) else { return nil }
         let winner = profiles[winnerIndex]
-        var accumulators = frequencyWeights.map { _ in HitAccumulator() }
+        var accumulators = variants.map { _ in HitAccumulator() }
 
         for index in holdoutStart..<draws.count {
             let training = Array(draws.prefix(index))
@@ -53,24 +65,39 @@ final class AlphaFrequencyBlendEngine {
             let cache = ScoreCache(draws: training)
             let alphaEngine = ScoreEngine(cache: cache, goal: winner.goal)
             let alphaNormalized = normalize(candidates.map { alphaEngine.score(ticket: $0) })
-            let frequencyNormalized = normalize(frequencyScores(for: candidates, draws: training))
+            let frequency = frequencyScores(for: candidates, draws: training)
+            let frequencyNormalized = normalize(frequency)
+            let concentration = mainConcentrationScores(for: candidates, draws: training)
+            let concentrationNormalized = normalize(concentration)
 
-            for (variantIndex, percent) in frequencyWeights.enumerated() {
-                let blend = Double(percent) / 100.0
-                let blended = candidates.indices.map { (1.0 - blend) * alphaNormalized[$0] + blend * frequencyNormalized[$0] }
+            for (variantIndex, variant) in variants.enumerated() {
+                let f2Blend = Double(variant.0) / 100.0
+                let concentrationBlend = Double(variant.1) / 100.0
+                let blended = candidates.indices.map {
+                    let alphaWeight = max(0.0, 1.0 - f2Blend - concentrationBlend)
+                    return alphaWeight * alphaNormalized[$0]
+                        + f2Blend * frequencyNormalized[$0]
+                        + concentrationBlend * concentrationNormalized[$0]
+                }
                 let tickets = select(candidates: candidates, scores: blended, limit: recommendationCount)
                 accumulators[variantIndex].add(tickets: tickets, target: target)
             }
         }
 
-        let variants = zip(frequencyWeights.indices, frequencyWeights).map { index, percent in
+        let results = variants.indices.map { index in
+            let variant = variants[index]
             let a = accumulators[index]
             let points = a.classes.enumerated().reduce(0) { total, item in
-                total + (item.offset / 3) * (item.offset / 3) * item.element + (item.offset % 3) * item.element
+                let main = item.offset / 3
+                let euro = item.offset % 3
+                return total + main * main * item.element + euro * item.element
             }
             return AlphaFrequencyBlendResult.VariantResult(
-                label: percent == 0 ? "Alpha 7.5" : "Alpha + \(percent)% F2",
-                frequencyPercent: percent,
+                label: variant.0 == 0 && variant.1 == 0
+                    ? "Alpha 7.5"
+                    : "Alpha + F2 \(variant.0)% + Konzentration \(variant.1)%",
+                frequencyPercent: variant.0,
+                concentrationPercent: variant.1,
                 classes: a.classes,
                 totalPoints: points,
                 mainHits: a.mainHits,
@@ -80,25 +107,35 @@ final class AlphaFrequencyBlendEngine {
         }
 
         print("===================================")
-        print("🧪 ALPHA 7.5 + F2-FREQUENZ-SWEEP")
+        print("🧪 ALPHA + F2-HAUPTZAHL-KONZENTRATION")
         print("Alpha-Profil: P\(String(format: "%02d", winner.id))")
-        print("F2-Anteil: 0 / 5 / 10 / 15 / 20 / 25 / 30 / 35 / 40 / 50 %")
+        print("F2 wirkt nur auf die Hauptzahlen; Konzentration belohnt hoch gerankte Hauptzahlen")
         print("Qualitätswertung = Haupttreffer² + Eurotreffer")
-        for variant in variants {
-            print(String(format: "%-16@ | %4d Punkte | Ø %.3f | 2+ Haupt: %3d", variant.label, variant.totalPoints, Double(variant.totalPoints) / 450.0, variant.higherHits))
+        for result in results {
+            print(String(format: "%-42@ | %4d Punkte | Ø %.3f | 2+ Haupt: %3d", result.label, result.totalPoints, Double(result.totalPoints) / 450.0, result.higherHits))
         }
         print("===================================")
 
-        return AlphaFrequencyBlendResult(holdoutDraws: holdoutCount, alphaProfileID: winner.id, variants: variants)
+        return AlphaFrequencyBlendResult(holdoutDraws: holdoutCount, alphaProfileID: winner.id, variants: results)
     }
 
     private func frequencyScores(for tickets: [Ticket], draws: [EuroJackpotDraw]) -> [Double] {
         let mainRank = rankMap(counts(draws: draws, range: 1...50, euro: false), range: 1...50)
-        let euroRank = rankMap(counts(draws: draws, range: 1...12, euro: true), range: 1...12)
         return tickets.map { ticket in
-            let main = ticket.numbers.reduce(0.0) { $0 + mainRank[$1, default: 0] } / 5.0
-            let euro = ticket.euroNumbers.reduce(0.0) { $0 + euroRank[$1, default: 0] } / 2.0
-            return main
+            ticket.numbers.reduce(0.0) { $0 + mainRank[$1, default: 0] } / 5.0
+        }
+    }
+
+    private func mainConcentrationScores(for tickets: [Ticket], draws: [EuroJackpotDraw]) -> [Double] {
+        let mainRank = rankMap(counts(draws: draws, range: 1...50, euro: false), range: 1...50)
+        return tickets.map { ticket in
+            let ranks = ticket.numbers.map { mainRank[$0, default: 0] }.sorted(by: >)
+            guard ranks.count == 5 else { return 0.0 }
+            return ranks[0] * 0.35
+                + ranks[1] * 0.25
+                + ranks[2] * 0.20
+                + ranks[3] * 0.12
+                + ranks[4] * 0.08
         }
     }
 
@@ -126,7 +163,10 @@ final class AlphaFrequencyBlendEngine {
     }
 
     private func select(candidates: [Ticket], scores: [Double], limit: Int) -> [Ticket] {
-        let ranked = candidates.indices.sorted { scores[$0] > scores[$1] }
+        let ranked = candidates.indices.sorted {
+            if scores[$0] == scores[$1] { return $0 < $1 }
+            return scores[$0] > scores[$1]
+        }
         var result: [Ticket] = []
         for index in ranked {
             if result.allSatisfy({ WeightSweepCore.commonNumbers($0, candidates[index]) < 3 }) {
