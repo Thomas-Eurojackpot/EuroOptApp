@@ -2,7 +2,7 @@
 //  OptimizerView.swift
 //  EuroOpt
 //
-//  Alpha 7.5
+//  Alpha 7.6
 //
 
 import SwiftUI
@@ -40,7 +40,7 @@ struct OptimizerView: View {
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("🎯 Optimierer").font(.largeTitle).bold()
-            Text("EuroOpt Alpha 7.5").font(.headline)
+            Text("EuroOpt Alpha 7.6").font(.headline)
             Text("Generiert Kandidaten und bewertet daraus die besten Empfehlungen.")
                 .foregroundStyle(.secondary)
         }
