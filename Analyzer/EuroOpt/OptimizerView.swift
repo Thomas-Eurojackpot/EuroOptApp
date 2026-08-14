@@ -13,6 +13,8 @@ struct OptimizerView: View {
     @StateObject private var settingsViewModel = OptimizerSettingsViewModel()
     @State private var f2AlphaFilterRunning = false
     @State private var f2AlphaFilterStatus = "Noch kein F2/50 → Alpha Filtertest gestartet"
+    @State private var f2FeatureRunning = false
+    @State private var f2FeatureStatus = "Noch keine F2/50 Feature-Analyse gestartet"
 
     private let database = DrawDatabase()
 
@@ -26,6 +28,7 @@ struct OptimizerView: View {
                 holdoutSection
                 robustnessSection
                 f2AlphaFilterSection
+                f2FeatureSection
                 randomBenchmarkSection
                 normalDistributionSection
                 confirmationSection
@@ -65,20 +68,20 @@ struct OptimizerView: View {
                 else { Label("Empfehlungen berechnen", systemImage: "sparkles").frame(maxWidth: .infinity) }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning || f2FeatureRunning)
 
             Button { viewModel.runBacktest() } label: {
                 Label("🧪 Backtest starten", systemImage: "flask").frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning || f2FeatureRunning)
 
             Button { viewModel.runHoldoutTest() } label: {
                 if viewModel.isHoldoutRunning { ProgressView().frame(maxWidth: .infinity) }
                 else { Label("🧪 Holdout-Test starten", systemImage: "checkmark.shield").frame(maxWidth: .infinity) }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isHoldoutRunning || viewModel.isLearning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+            .disabled(viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isHoldoutRunning || viewModel.isLearning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning || f2FeatureRunning)
         }
     }
 
@@ -94,11 +97,11 @@ struct OptimizerView: View {
                     else { Label("Gewichte lernen", systemImage: "brain.head.profile").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isLearning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+                .disabled(viewModel.isLearning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning || f2FeatureRunning)
 
                 Button("Standardprofil wiederherstellen") { viewModel.resetLearnedWeights() }
                     .buttonStyle(.bordered)
-                    .disabled(viewModel.isLearning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+                    .disabled(viewModel.isLearning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning || f2FeatureRunning)
 
                 Text(viewModel.learningStatus).font(.footnote).foregroundStyle(.secondary)
 
@@ -134,7 +137,7 @@ struct OptimizerView: View {
                     else { Label("Robustheitsanalyse starten", systemImage: "waveform.path.ecg").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isRobustnessRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || f2AlphaFilterRunning)
+                .disabled(viewModel.isRobustnessRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || f2AlphaFilterRunning || f2FeatureRunning)
 
                 Text(viewModel.robustnessStatus).font(.footnote).foregroundStyle(.secondary)
             }
@@ -155,7 +158,7 @@ struct OptimizerView: View {
                     else { Label("F2/50 → Alpha Filter testen", systemImage: "shield.checkered").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(f2AlphaFilterRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning)
+                .disabled(f2AlphaFilterRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2FeatureRunning)
 
                 Text(f2AlphaFilterStatus).font(.footnote).foregroundStyle(.secondary)
             }
@@ -178,6 +181,42 @@ struct OptimizerView: View {
         }
     }
 
+    private var f2FeatureSection: some View {
+        GroupBox("🔎 F2/50 Feature-Analyse") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Untersucht strukturelle Eigenschaften der unveränderten F2/50-Tipps. Keine Auswahl und keine Änderung an F2.").foregroundStyle(.secondary)
+                Text("Analysiert werden Summe, gerade/ungerade, hohe/niedrige Zahlen, benachbarte Paare und Spread.").font(.footnote).foregroundStyle(.secondary)
+
+                Button {
+                    startF2FeatureAnalysis()
+                } label: {
+                    if f2FeatureRunning { ProgressView().frame(maxWidth: .infinity) }
+                    else { Label("F2/50 Feature-Test starten", systemImage: "magnifyingglass.chart.bar").frame(maxWidth: .infinity) }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(f2FeatureRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+
+                Text(f2FeatureStatus).font(.footnote).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func startF2FeatureAnalysis() {
+        guard !f2FeatureRunning else { return }
+        let draws = database.allDraws()
+        f2FeatureRunning = true
+        f2FeatureStatus = "F2/50 Feature-Analyse läuft – Ergebnis in der Xcode-Konsole..."
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            F2FeatureAnalyzer().run(draws: draws)
+            DispatchQueue.main.async {
+                f2FeatureStatus = "F2/50 Feature-Analyse beendet – Ergebnis in der Xcode-Konsole"
+                f2FeatureRunning = false
+            }
+        }
+    }
+
     private var randomBenchmarkSection: some View {
         GroupBox("🎲 Empirischer Zufallsbenchmark") {
             VStack(alignment: .leading, spacing: 10) {
@@ -189,7 +228,7 @@ struct OptimizerView: View {
                     else { Label("Zufallsbenchmark starten", systemImage: "dice").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isRandomBenchmarkRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+                .disabled(viewModel.isRandomBenchmarkRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning || f2FeatureRunning)
 
                 Text(viewModel.randomBenchmarkStatus).font(.footnote).foregroundStyle(.secondary)
             }
@@ -208,7 +247,7 @@ struct OptimizerView: View {
                     else { Label("Normalverteilungstest starten", systemImage: "chart.line.uptrend.xyaxis").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isNormalDistributionRunning || viewModel.isRandomBenchmarkRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+                .disabled(viewModel.isNormalDistributionRunning || viewModel.isRandomBenchmarkRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning || f2FeatureRunning)
 
                 Text(viewModel.normalDistributionStatus).font(.footnote).foregroundStyle(.secondary)
             }
@@ -227,7 +266,7 @@ struct OptimizerView: View {
                     else { Label("G/U-Bestätigung starten", systemImage: "scope").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isConfirmationRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+                .disabled(viewModel.isConfirmationRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning || f2FeatureRunning)
 
                 Text(viewModel.confirmationStatus).font(.footnote).foregroundStyle(.secondary)
             }
