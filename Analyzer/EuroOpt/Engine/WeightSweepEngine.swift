@@ -24,69 +24,37 @@ final class WeightSweepEngine {
 
     private struct HitClassAggregate {
         var counts = Array(repeating: 0, count: 18)
-
         mutating func add(mainHits: Int, euroHits: Int) {
             let main = min(max(mainHits, 0), 5)
             let euro = min(max(euroHits, 0), 2)
             counts[main * 3 + euro] += 1
         }
-
-        func count(mainHits: Int, euroHits: Int) -> Int {
-            counts[mainHits * 3 + euroHits]
-        }
-
-        var total: Int {
-            counts.reduce(0, +)
-        }
+        func count(mainHits: Int, euroHits: Int) -> Int { counts[mainHits * 3 + euroHits] }
+        var total: Int { counts.reduce(0, +) }
     }
 
     private struct ExpectedHitClassAggregate {
         var counts = Array(repeating: 0.0, count: 18)
-
         mutating func add(date: Date, ticketCount: Int) {
             guard ticketCount > 0 else { return }
             let euroCount = date < WeightSweepEngine.euroFormatCutoverDate() ? 10 : 12
-
             for mainHits in 0...5 {
-                let mainProbability = WeightSweepEngine.hypergeometricProbability(
-                    successPopulation: 5,
-                    failurePopulation: 45,
-                    draws: 5,
-                    successes: mainHits
-                )
-
+                let mainProbability = WeightSweepEngine.hypergeometricProbability(successPopulation: 5, failurePopulation: 45, draws: 5, successes: mainHits)
                 for euroHits in 0...2 {
-                    let euroProbability = WeightSweepEngine.hypergeometricProbability(
-                        successPopulation: 2,
-                        failurePopulation: euroCount - 2,
-                        draws: 2,
-                        successes: euroHits
-                    )
-
-                    counts[mainHits * 3 + euroHits] +=
-                        mainProbability * euroProbability * Double(ticketCount)
+                    let euroProbability = WeightSweepEngine.hypergeometricProbability(successPopulation: 2, failurePopulation: euroCount - 2, draws: 2, successes: euroHits)
+                    counts[mainHits * 3 + euroHits] += mainProbability * euroProbability * Double(ticketCount)
                 }
             }
         }
-
-        func expectedCount(mainHits: Int, euroHits: Int) -> Double {
-            counts[mainHits * 3 + euroHits]
-        }
-
-        var total: Double {
-            counts.reduce(0, +)
-        }
+        func expectedCount(mainHits: Int, euroHits: Int) -> Double { counts[mainHits * 3 + euroHits] }
+        var total: Double { counts.reduce(0, +) }
     }
 
     private let profileCount = 32
     private let candidateCountMinimum = 301
 
     func run(draws: [EuroJackpotDraw], recommendationCount: Int) {
-        guard draws.count > 140 else {
-            print("❌ Weight-Sweep: zu wenige Ziehungen")
-            return
-        }
-
+        guard draws.count > 140 else { print("❌ Weight-Sweep: zu wenige Ziehungen"); return }
         let start = Date()
         let totalTests = draws.count - 100
         let validationTests = totalTests / 2
@@ -118,7 +86,6 @@ final class WeightSweepEngine {
             let candidates = generator.generate(count: candidateCount, draws: trainingDraws, goal: OptimizationGoal(), hillClimbingIterations: 0)
             let cache = ScoreCache(draws: trainingDraws)
             let scoreEngines = profiles.map { ScoreEngine(cache: cache, goal: $0.goal) }
-
             for profileIndex in profiles.indices {
                 let best = bestTickets(candidates: candidates, scoreEngine: scoreEngines[profileIndex], limit: recommendationCount)
                 let hits = best.reduce(0) { $0 + Set($1.numbers).intersection(targetDraw.numbers).count }
@@ -129,15 +96,10 @@ final class WeightSweepEngine {
                 validationTotals[profileIndex].tickets += best.count
                 validationTotals[profileIndex].expectedEuroHits += expectedForTest
             }
-
-            if (index - 99).isMultiple(of: 50) {
-                print("... Validation \(index - 99) / \(validationTests)")
-            }
+            if (index - 99).isMultiple(of: 50) { print("... Validation \(index - 99) / \(validationTests)") }
         }
 
-        let ranked = profiles.indices.sorted { lhs, rhs in
-            validationScore(validationTotals[lhs]) > validationScore(validationTotals[rhs])
-        }
+        let ranked = profiles.indices.sorted { lhs, rhs in validationScore(validationTotals[lhs]) > validationScore(validationTotals[rhs]) }
         guard let winnerIndex = ranked.first else { return }
         let winner = profiles[winnerIndex]
         let winnerValidation = validationTotals[winnerIndex]
@@ -148,15 +110,11 @@ final class WeightSweepEngine {
         print("-----------------------------------")
         for (rank, profileIndex) in ranked.prefix(10).enumerated() {
             let total = validationTotals[profileIndex]
-            print(String(format: "%2d. P%02d  Haupt %.3f  Euro %.3f  Basis %.3f  Score %+.3f  %@",
-                         rank + 1, profiles[profileIndex].id, averageMain(total), averageEuro(total),
-                         averageExpectedEuro(total), validationScore(total), weightLabel(profiles[profileIndex])))
+            print(String(format: "%2d. P%02d  Haupt %.3f  Euro %.3f  Basis %.3f  Score %+.3f  %@", rank + 1, profiles[profileIndex].id, averageMain(total), averageEuro(total), averageExpectedEuro(total), validationScore(total), weightLabel(profiles[profileIndex])))
         }
-
         print("")
         print("🏆 GEWÄHLTES VALIDATION-PROFIL P\(String(format: "%02d", winner.id))")
-        print(String(format: "Haupt %.3f | Euro %.3f | Euro-Basis %.3f | kombinierter Überschuss %+.3f",
-                     averageMain(winnerValidation), averageEuro(winnerValidation), averageExpectedEuro(winnerValidation), validationScore(winnerValidation)))
+        print(String(format: "Haupt %.3f | Euro %.3f | Euro-Basis %.3f | kombinierter Überschuss %+.3f", averageMain(winnerValidation), averageEuro(winnerValidation), averageExpectedEuro(winnerValidation), validationScore(winnerValidation)))
         print(weightLabel(winner))
         print("")
         print("🔒 Jetzt erst folgt der unabhängige Holdout-Test.")
@@ -175,7 +133,6 @@ final class WeightSweepEngine {
             let cache = ScoreCache(draws: trainingDraws)
             let winnerScoreEngine = ScoreEngine(cache: cache, goal: winner.goal)
             let best = bestTickets(candidates: candidates, scoreEngine: winnerScoreEngine, limit: recommendationCount)
-
             for ticket in best {
                 let mainHits = Set(ticket.numbers).intersection(targetDraw.numbers).count
                 let euroHits = Set(ticket.euroNumbers).intersection(targetDraw.euroNumbers).count
@@ -183,22 +140,17 @@ final class WeightSweepEngine {
                 holdoutHits += mainHits
                 holdoutEuroHits += euroHits
             }
-
             holdoutTickets += best.count
             holdoutExpectedEuroHits += expectedEuroHitsForTickets(for: targetDraw.date, ticketCount: best.count)
             holdoutExpectedHitClasses.add(date: targetDraw.date, ticketCount: best.count)
-
             let current = index - holdoutStart + 1
-            if current.isMultiple(of: 50) {
-                print("... Holdout \(current) / \(totalTests - validationTests)")
-            }
+            if current.isMultiple(of: 50) { print("... Holdout \(current) / \(totalTests - validationTests)") }
         }
 
         let holdoutAverage = holdoutTickets > 0 ? Double(holdoutHits) / Double(holdoutTickets) : 0
         let holdoutEuroAverage = holdoutTickets > 0 ? Double(holdoutEuroHits) / Double(holdoutTickets) : 0
         let holdoutEuroExpected = holdoutTickets > 0 ? holdoutExpectedEuroHits / Double(holdoutTickets) : 0
         let randomMain = 0.50
-
         print("")
         print("===================================")
         print("🧪 ALPHA 7.5 HOLDOUT-ERGEBNIS")
@@ -212,9 +164,7 @@ final class WeightSweepEngine {
         print(String(format: "Δ Euro vs Basis     : %+.3f", holdoutEuroAverage - holdoutEuroExpected))
         print(String(format: "Kombinierter Δ      : %+.3f", (holdoutAverage - randomMain) + (holdoutEuroAverage - holdoutEuroExpected)))
         print("")
-
         printHitClassEvaluation(holdoutHitClasses, expected: holdoutExpectedHitClasses, totalTickets: holdoutTickets)
-
         print("Interpretation: Das Profil wurde ausschließlich auf der Validation-Hälfte gewählt.")
         print("Der Holdout wurde weder zur Gewichtswahl noch zur Kombinationsermittlung verwendet.")
         print("Die Trefferklassen stammen exakt aus denselben Holdout-Tipps wie Ø Haupttreffer und Ø Eurotreffer.")
@@ -226,11 +176,7 @@ final class WeightSweepEngine {
     }
 
     func runGUConfirmation(draws: [EuroJackpotDraw], recommendationCount: Int, windowSize: Int = 100) {
-        guard draws.count > windowSize + 100 else {
-            print("❌ G/U-Bestätigung: zu wenige Ziehungen")
-            return
-        }
-
+        guard draws.count > windowSize + 100 else { print("❌ G/U-Bestätigung: zu wenige Ziehungen"); return }
         let start = Date()
         let firstIndex = max(100, draws.count - windowSize)
         let generator = TicketGenerator()
@@ -240,7 +186,6 @@ final class WeightSweepEngine {
         var euroHits = 0
         var tickets = 0
         var expectedEuroTotal = 0.0
-
         print("")
         print("===================================")
         print("🧪 G/U-BESTÄTIGUNGS-TEST")
@@ -254,7 +199,6 @@ final class WeightSweepEngine {
         print("⚠️ Dieses Fenster war Teil des bisherigen Holdouts.")
         print("⚠️ Daher keine statistisch unabhängige Wiederholung.")
         print("")
-
         for index in firstIndex..<draws.count {
             let trainingDraws = Array(draws.prefix(index))
             let targetDraw = draws[index]
@@ -266,18 +210,13 @@ final class WeightSweepEngine {
             euroHits += best.reduce(0) { $0 + Set($1.euroNumbers).intersection(targetDraw.euroNumbers).count }
             tickets += best.count
             expectedEuroTotal += expectedEuroHitsForTickets(for: targetDraw.date, ticketCount: best.count)
-
             let current = index - firstIndex + 1
-            if current.isMultiple(of: 25) {
-                print("... Bestätigung \(current) / \(draws.count - firstIndex)")
-            }
+            if current.isMultiple(of: 25) { print("... Bestätigung \(current) / \(draws.count - firstIndex)") }
         }
-
         let average = tickets > 0 ? Double(hits) / Double(tickets) : 0
         let euroAverage = tickets > 0 ? Double(euroHits) / Double(tickets) : 0
         let euroExpected = tickets > 0 ? expectedEuroTotal / Double(tickets) : 0
         let randomMain = 0.50
-
         print("")
         print("===================================")
         print("🧪 G/U-BESTÄTIGUNGS-ERGEBNIS")
@@ -305,10 +244,7 @@ final class WeightSweepEngine {
         for candidate in scored {
             var different = true
             for existing in result {
-                if commonNumbers(existing, candidate.0) >= 3 {
-                    different = false
-                    break
-                }
+                if commonNumbers(existing, candidate.0) >= 3 { different = false; break }
             }
             if different {
                 result.append(candidate.0)
@@ -327,65 +263,40 @@ final class WeightSweepEngine {
         return count
     }
 
-    private func averageMain(_ aggregate: Aggregate) -> Double {
-        aggregate.tickets > 0 ? Double(aggregate.hits) / Double(aggregate.tickets) : 0
-    }
-
-    private func averageEuro(_ aggregate: Aggregate) -> Double {
-        aggregate.tickets > 0 ? Double(aggregate.euroHits) / Double(aggregate.tickets) : 0
-    }
-
-    private func averageExpectedEuro(_ aggregate: Aggregate) -> Double {
-        aggregate.tickets > 0 ? aggregate.expectedEuroHits / Double(aggregate.tickets) : 0
-    }
-
+    private func averageMain(_ aggregate: Aggregate) -> Double { aggregate.tickets > 0 ? Double(aggregate.hits) / Double(aggregate.tickets) : 0 }
+    private func averageEuro(_ aggregate: Aggregate) -> Double { aggregate.tickets > 0 ? Double(aggregate.euroHits) / Double(aggregate.tickets) : 0 }
+    private func averageExpectedEuro(_ aggregate: Aggregate) -> Double { aggregate.tickets > 0 ? aggregate.expectedEuroHits / Double(aggregate.tickets) : 0 }
     private func validationScore(_ aggregate: Aggregate) -> Double {
-        let mainDelta = averageMain(aggregate) - 0.50
-        let euroDelta = averageEuro(aggregate) - averageExpectedEuro(aggregate)
-        return mainDelta + euroDelta
+        (averageMain(aggregate) - 0.50) + (averageEuro(aggregate) - averageExpectedEuro(aggregate))
     }
-
     private func expectedEuroHitsForTickets(for date: Date, ticketCount: Int) -> Double {
         guard ticketCount > 0 else { return 0 }
         let expectedPerTicket = date < Self.euroFormatCutoverDate() ? 0.400 : (1.0 / 3.0)
         return expectedPerTicket * Double(ticketCount)
     }
-
     private static func euroFormatCutoverDate() -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar.date(from: DateComponents(year: 2022, month: 3, day: 25))!
     }
-
     private static func hypergeometricProbability(successPopulation: Int, failurePopulation: Int, draws: Int, successes: Int) -> Double {
-        guard successes >= 0,
-              successes <= draws,
-              successes <= successPopulation,
-              draws - successes <= failurePopulation else { return 0 }
-        return combination(successPopulation, successes)
-            * combination(failurePopulation, draws - successes)
-            / combination(successPopulation + failurePopulation, draws)
+        guard successes >= 0, successes <= draws, successes <= successPopulation, draws - successes <= failurePopulation else { return 0 }
+        return combination(successPopulation, successes) * combination(failurePopulation, draws - successes) / combination(successPopulation + failurePopulation, draws)
     }
-
     private static func combination(_ n: Int, _ k: Int) -> Double {
         guard k >= 0, k <= n else { return 0 }
         if k == 0 || k == n { return 1 }
         let m = min(k, n - k)
         var result = 1.0
-        for i in 1...m {
-            result *= Double(n - m + i) / Double(i)
-        }
+        for i in 1...m { result *= Double(n - m + i) / Double(i) }
         return result
     }
 
-    private func printHitClassEvaluation(_ aggregate: HitClassAggregate,
-                                          expected: ExpectedHitClassAggregate,
-                                          totalTickets: Int) {
+    private func printHitClassEvaluation(_ aggregate: HitClassAggregate, expected: ExpectedHitClassAggregate, totalTickets: Int) {
         print("-----------------------------------")
         print("TREFFERKLASSEN – HOLDOUT vs. THEORETISCHER ZUFALL")
         print("-----------------------------------")
         print("Klasse     Ist       Ist %      Zufall     Zufall %      Δ %-Pkt.")
-
         for mainHits in stride(from: 5, through: 0, by: -1) {
             for euroHits in stride(from: 2, through: 0, by: -1) {
                 let observed = aggregate.count(mainHits: mainHits, euroHits: euroHits)
@@ -393,23 +304,16 @@ final class WeightSweepEngine {
                 let expectedCount = expected.expectedCount(mainHits: mainHits, euroHits: euroHits)
                 let expectedShare = totalTickets > 0 ? expectedCount / Double(totalTickets) * 100.0 : 0
                 let deltaShare = observedShare - expectedShare
-                print(String(format: "%d + %d     %6d    %7.2f %%   %8.2f    %8.2f %%    %+7.2f",
-                             mainHits, euroHits, observed, observedShare, expectedCount, expectedShare, deltaShare))
+                print(String(format: "%d + %d     %6d    %7.2f %%   %8.2f    %8.2f %%    %+7.2f", mainHits, euroHits, observed, observedShare, expectedCount, expectedShare, deltaShare))
             }
         }
-
-        let winningTickets = (0...5).reduce(0) { partial, mainHits in
-            partial + (0...2).reduce(0) { inner, euroHits in
-                (mainHits > 0 || euroHits > 0) ? inner + aggregate.count(mainHits: mainHits, euroHits: euroHits) : inner
-            }
-        }
+        let winningTickets = (0...5).reduce(0) { partial, mainHits in partial + (0...2).reduce(0) { inner, euroHits in (mainHits > 0 || euroHits > 0) ? inner + aggregate.count(mainHits: mainHits, euroHits: euroHits) : inner } }
         let zeroTickets = aggregate.count(mainHits: 0, euroHits: 0)
         let winningShare = totalTickets > 0 ? Double(winningTickets) / Double(totalTickets) * 100.0 : 0
         let zeroShare = totalTickets > 0 ? Double(zeroTickets) / Double(totalTickets) * 100.0 : 0
         let expectedWinning = expected.total - expected.expectedCount(mainHits: 0, euroHits: 0)
         let expectedWinningShare = totalTickets > 0 ? expectedWinning / Double(totalTickets) * 100.0 : 0
         let expectedZeroShare = totalTickets > 0 ? expected.expectedCount(mainHits: 0, euroHits: 0) / Double(totalTickets) * 100.0 : 0
-
         print("")
         print("Gesamttipps         : \(totalTickets)")
         print("Mind. 1 Treffer     : \(winningTickets) (\(String(format: "%.2f", winningShare)) %) | Zufall \(String(format: "%.2f", expectedWinningShare)) % | Δ \(String(format: "%+.2f", winningShare - expectedWinningShare)) %-Pkt.")
@@ -420,51 +324,31 @@ final class WeightSweepEngine {
 
     private func makeProfiles() -> [Profile] {
         var profiles: [Profile] = []
-        let singles: [[Double]] = [
-            [100, 0, 0, 0, 0, 0],
-            [0, 100, 0, 0, 0, 0],
-            [0, 0, 100, 0, 0, 0],
-            [0, 0, 0, 100, 0, 0],
-            [0, 0, 0, 0, 100, 0],
-            [0, 0, 0, 0, 0, 100]
-        ]
-        for weights in singles {
-            profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
-        }
-        for lhs in 0..<6 {
-            for rhs in (lhs + 1)..<6 {
-                var weights = Array(repeating: 0.0, count: 6)
-                weights[lhs] = 50
-                weights[rhs] = 50
-                profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
-            }
-        }
-        for a in 0..<4 {
-            for b in (a + 1)..<5 {
-                for c in (b + 1)..<6 {
-                    var weights = Array(repeating: 0.0, count: 6)
-                    weights[a] = 34
-                    weights[b] = 33
-                    weights[c] = 33
-                    profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights))
-                }
-            }
-        }
-        let diversified = [20.0, 20.0, 15.0, 15.0, 15.0, 15.0]
+        let singles: [[Double]] = [[100,0,0,0,0,0],[0,100,0,0,0,0],[0,0,100,0,0,0],[0,0,0,100,0,0],[0,0,0,0,100,0],[0,0,0,0,0,100]]
+        for weights in singles { profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights)) }
+        for lhs in 0..<6 { for rhs in (lhs + 1)..<6 { var weights = Array(repeating: 0.0, count: 6); weights[lhs] = 50; weights[rhs] = 50; profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights)) } }
+        for a in 0..<4 { for b in (a + 1)..<5 { for c in (b + 1)..<6 { var weights = Array(repeating: 0.0, count: 6); weights[a] = 34; weights[b] = 33; weights[c] = 33; profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(weights), weights: weights)) } } }
+        let diversified = [20.0,20.0,15.0,15.0,15.0,15.0]
         profiles.append(Profile(id: profiles.count + 1, goal: makeGoal(diversified), weights: diversified))
         return Array(profiles.prefix(profileCount))
     }
-
     private func makeGoal(_ weights: [Double]) -> OptimizationGoal {
-        OptimizationGoal(
-            frequencyWeight: weights[0], pairWeight: weights[1], evenOddWeight: weights[2],
-            highLowWeight: weights[3], sumWeight: weights[4], gapWeight: weights[5]
-        )
+        OptimizationGoal(frequencyWeight: weights[0], pairWeight: weights[1], evenOddWeight: weights[2], highLowWeight: weights[3], sumWeight: weights[4], gapWeight: weights[5])
+    }
+    private func weightLabel(_ profile: Profile) -> String {
+        String(format: "F %.0f | P %.0f | G/U %.0f | H/N %.0f | S %.0f | A %.0f", profile.weights[0], profile.weights[1], profile.weights[2], profile.weights[3], profile.weights[4], profile.weights[5])
     }
 
-    private func weightLabel(_ profile: Profile) -> String {
-        String(format: "F %.0f | P %.0f | G/U %.0f | H/N %.0f | S %.0f | A %.0f",
-               profile.weights[0], profile.weights[1], profile.weights[2], profile.weights[3],
-               profile.weights[4], profile.weights[5])
+    // MARK: - Parity bridge
+    // Internal test-only bridge. The normal Alpha 7.5 run does not call this.
+    func paritySelections(candidates: [Ticket], trainingDraws: [EuroJackpotDraw], recommendationCount: Int) -> [WeightSweepParitySelection] {
+        guard !candidates.isEmpty else { return [] }
+        let profiles = makeProfiles()
+        let cache = ScoreCache(draws: trainingDraws)
+        let scoreEngines = profiles.map { ScoreEngine(cache: cache, goal: $0.goal) }
+        return profiles.indices.map { index in
+            let best = bestTickets(candidates: candidates, scoreEngine: scoreEngines[index], limit: recommendationCount)
+            return WeightSweepParitySelection(profileID: profiles[index].id, weights: profiles[index].weights, tickets: best)
+        }
     }
 }

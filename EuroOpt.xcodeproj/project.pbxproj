@@ -15,9 +15,22 @@
 		9681AA43301FE76600B71329 /* EUROOPT_SPECIFICATION.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = EUROOPT_SPECIFICATION.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		96B6DDB9302B0CF100400206 /* Exceptions for "EuroOpt" folder in "EuroOpt" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Tests/WeightSweepParityTest.swift,
+			);
+			target = 9681A97D301F65D000B71329 /* EuroOpt */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9681A980301F65D000B71329 /* EuroOpt */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				96B6DDB9302B0CF100400206 /* Exceptions for "EuroOpt" folder in "EuroOpt" target */,
+			);
 			path = EuroOpt;
 			sourceTree = "<group>";
 		};
