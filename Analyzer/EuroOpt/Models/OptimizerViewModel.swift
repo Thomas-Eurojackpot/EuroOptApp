@@ -44,6 +44,7 @@ final class OptimizerViewModel: ObservableObject {
     private let generator = TicketGenerator()
     private let backtest = BacktestEngine()
     private let learningEngine = LearningEngine()
+    private let savedRecommendationsStore = SavedRecommendationsStore()
 
     var learnedProfileText: String {
         let goal = learnedGoal
@@ -96,13 +97,48 @@ final class OptimizerViewModel: ObservableObject {
         print("🧠 Verwendetes Profil: \(learnedProfileText)")
         print("================================")
 
+        let draws = database.allDraws()
+
+        guard let latestDraw = draws.last else {
+            print("❌ Keine Ziehungen vorhanden.")
+            return
+        }
+
+        let latestDrawKey = String(describing: latestDraw.date)
+
+        if let saved = savedRecommendationsStore.load(),
+           saved.drawDate == latestDrawKey {
+
+            print("♻️ Gespeicherte Empfehlungen werden verwendet.")
+            print("   Ziehung: \(latestDrawKey)")
+            print("   Tipps: \(saved.reports.count)")
+
+            reports = saved.reports.map {
+                OptimizerReport(
+                    ticket: Ticket(
+                        numbers: $0.numbers,
+                        euroNumbers: $0.euroNumbers
+                    ),
+                    eqi: EQI(value: $0.eqi)
+                )
+            }
+
+            return
+        }
+
         isCalculating = true
         let start = Date()
-        let draws = database.allDraws()
         let goal = OptimizationGoalStore.shared.currentGoal
 
         print("📊 Ziehungen geladen: \(draws.count)")
-        let candidates = generator.generate(count: candidateCount, draws: draws, goal: goal)
+        print("🆕 Neue Ziehung erkannt – Optimizer wird ausgeführt.")
+
+        let candidates = generator.generate(
+            count: candidateCount,
+            draws: draws,
+            goal: goal
+        )
+
         print("🎲 Erzeugte Spielsysteme: \(candidates.count)")
 
         let bestTickets = optimizer.bestTickets(
@@ -128,9 +164,20 @@ final class OptimizerViewModel: ObservableObject {
             )
         }
 
+        savedRecommendationsStore.save(
+            drawDate: latestDrawKey,
+            reports: reports
+        )
+
         print("--------------------------------")
-        print(String(format: "⏱ Gesamtzeit: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print(
+            String(
+                format: "⏱ Gesamtzeit: %.2f Sekunden",
+                Date().timeIntervalSince(start)
+            )
+        )
         print("--------------------------------")
+
         isCalculating = false
     }
 
