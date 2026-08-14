@@ -65,7 +65,7 @@ final class OptimizerViewModel: ObservableObject {
 
         var text = """
 🎯 EuroOpt – Top \(reports.count) Empfehlungen
-🍀 Erstellt mit EuroOpt Alpha 7.5
+🍀 Erstellt mit EuroOpt Alpha 7.6
 
 """
 

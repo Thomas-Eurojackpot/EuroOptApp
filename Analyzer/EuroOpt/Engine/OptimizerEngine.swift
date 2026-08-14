@@ -2,7 +2,8 @@
 //  OptimizerEngine.swift
 //  EuroOpt
 //
-//  Alpha 7.0
+//  Alpha 7.6
+//  Alpha + Hauptzahl-Konzentration 30 %
 //
 
 import Foundation
@@ -13,16 +14,17 @@ final class OptimizerEngine {
 
     private let scoreEngine: ScoreEngine
 
+    private let alphaWeight = 0.70
+    private let concentrationWeight = 0.30
+
     // MARK: - Initializer
 
     init(
         goal: OptimizationGoal = OptimizationGoal()
     ) {
-
         self.scoreEngine = ScoreEngine(
             goal: goal
         )
-
     }
 
     // MARK: - Public
@@ -30,9 +32,7 @@ final class OptimizerEngine {
     func updateGoal(
         _ goal: OptimizationGoal
     ) {
-
         scoreEngine.updateGoal(goal)
-
     }
 
     func bestTickets(
@@ -43,72 +43,55 @@ final class OptimizerEngine {
     ) -> [(ticket: Ticket, score: Double)] {
 
         if let goal {
-
             scoreEngine.updateGoal(goal)
-
         }
 
-        print("🎯 Optimizer bewertet \(candidates.count) Tickets")
+        print("🎯 Alpha 7.6 bewertet \(candidates.count) Tickets")
+        print("⚖️ Gewichtung: 70 % Alpha + 30 % Konzentration")
 
         guard !candidates.isEmpty else {
             return []
         }
 
-        let keepCount = max(limit * 4, 32)
-
-        var best: [(ticket: Ticket, score: Double)] = []
-        best.reserveCapacity(keepCount)
-
-        for ticket in candidates {
-
-            let score = scoreEngine.score(
-                ticket: ticket,
+        let alphaScores = candidates.map {
+            scoreEngine.score(
+                ticket: $0,
                 draws: draws
             )
-
-            if best.count < keepCount {
-
-                best.append((ticket, score))
-
-                if best.count == keepCount {
-                    best.sort { $0.score > $1.score }
-                }
-
-                continue
-            }
-
-            guard score > best[keepCount - 1].score else {
-                continue
-            }
-
-            var low = 0
-            var high = keepCount - 1
-
-            while low < high {
-
-                let mid = (low + high) / 2
-
-                if score > best[mid].score {
-                    high = mid
-                } else {
-                    low = mid + 1
-                }
-
-            }
-
-            best.insert((ticket, score), at: low)
-            best.removeLast()
-
         }
 
-        if best.count < keepCount {
-            best.sort { $0.score > $1.score }
+        let concentrationScores = mainConcentrationScores(
+            for: candidates,
+            draws: draws
+        )
+
+        let normalizedAlpha = normalize(alphaScores)
+        let normalizedConcentration = normalize(concentrationScores)
+
+        let blendedScores = candidates.indices.map { index in
+            alphaWeight * normalizedAlpha[index]
+                + concentrationWeight * normalizedConcentration[index]
         }
+
+        let ranked = candidates.indices.sorted {
+            if blendedScores[$0] == blendedScores[$1] {
+                return $0 < $1
+            }
+
+            return blendedScores[$0] > blendedScores[$1]
+        }
+
+        let keepCount = min(
+            max(limit * 4, 32),
+            ranked.count
+        )
 
         var result: [(ticket: Ticket, score: Double)] = []
         result.reserveCapacity(limit)
 
-        for candidate in best {
+        for index in ranked.prefix(keepCount) {
+
+            let candidate = candidates[index]
 
             var different = true
 
@@ -116,32 +99,137 @@ final class OptimizerEngine {
 
                 if commonNumbers(
                     existing.ticket,
-                    candidate.ticket
+                    candidate
                 ) >= 3 {
 
                     different = false
                     break
-
                 }
-
             }
 
             if different {
-
-                result.append(candidate)
+                result.append(
+                    (
+                        ticket: candidate,
+                        score: blendedScores[index]
+                    )
+                )
 
                 if result.count == limit {
                     break
                 }
-
             }
-
         }
 
-        print("✅ Optimizer fertig (\(result.count) Tickets)")
+        print("✅ Alpha 7.6 Optimizer fertig (\(result.count) Tickets)")
 
         return result
+    }
 
+    // MARK: - Concentration
+
+    private func mainConcentrationScores(
+        for tickets: [Ticket],
+        draws: [EuroJackpotDraw]
+    ) -> [Double] {
+
+        let mainRank = rankMap(
+            counts(
+                draws: draws,
+                range: 1...50
+            ),
+            range: 1...50
+        )
+
+        return tickets.map { ticket in
+
+            let ranks = ticket.numbers
+                .map {
+                    mainRank[$0, default: 0]
+                }
+                .sorted(by: >)
+
+            guard ranks.count == 5 else {
+                return 0.0
+            }
+
+            return ranks[0] * 0.35
+                + ranks[1] * 0.25
+                + ranks[2] * 0.20
+                + ranks[3] * 0.12
+                + ranks[4] * 0.08
+        }
+    }
+
+    // MARK: - Frequency Rank
+
+    private func counts(
+        draws: [EuroJackpotDraw],
+        range: ClosedRange<Int>
+    ) -> [Int: Int] {
+
+        var result = Dictionary(
+            uniqueKeysWithValues: range.map {
+                ($0, 0)
+            }
+        )
+
+        for draw in draws {
+
+            for value in draw.numbers
+            where range.contains(value) {
+
+                result[value, default: 0] += 1
+            }
+        }
+
+        return result
+    }
+
+    private func rankMap(
+        _ counts: [Int: Int],
+        range: ClosedRange<Int>
+    ) -> [Int: Double] {
+
+        let ranked = range.sorted {
+
+            if counts[$0, default: 0] == counts[$1, default: 0] {
+                return $0 < $1
+            }
+
+            return counts[$0, default: 0] > counts[$1, default: 0]
+        }
+
+        let denominator = Double(
+            max(1, ranked.count - 1)
+        )
+
+        return Dictionary(
+            uniqueKeysWithValues:
+                ranked.enumerated().map {
+                    (
+                        $0.element,
+                        1.0 - Double($0.offset) / denominator
+                    )
+                }
+        )
+    }
+
+    private func normalize(
+        _ values: [Double]
+    ) -> [Double] {
+
+        guard
+            let minValue = values.min(),
+            let maxValue = values.max(),
+            maxValue > minValue
+        else {
+            return values.map { _ in 0.5 }
+        }
+
+        return values.map {
+            ($0 - minValue) / (maxValue - minValue)
+        }
     }
 
     // MARK: - Private
@@ -163,13 +251,9 @@ final class OptimizerEngine {
                 if count >= 3 {
                     return count
                 }
-
             }
-
         }
 
         return count
-
     }
-
 }
