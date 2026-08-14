@@ -59,36 +59,32 @@ final class OptimizerViewModel: ObservableObject {
     }
 
     var shareText: String {
-        guard !reports.isEmpty else { return "Noch keine Empfehlungen vorhanden." }
+        guard !reports.isEmpty else {
+            return "Noch keine Empfehlungen vorhanden."
+        }
 
         var text = """
 🎯 EuroOpt – Top \(reports.count) Empfehlungen
-
 🍀 Erstellt mit EuroOpt Alpha 7.5
 
-────────────────────
-
 """
+
         let medals = ["🥇", "🥈", "🥉"]
+
         for (index, report) in reports.enumerated() {
             let medal = index < medals.count ? medals[index] : "⭐"
+
             text += """
 \(medal) Empfehlung \(index + 1)
+🎲 \(report.ticket.numbers.map(String.init).joined(separator: " • "))
+⭐ Eurozahlen: \(report.ticket.euroNumbers.map(String.init).joined(separator: " • "))
+⭐ EQI \(String(format: "%.0f", report.eqi.value)) %
 
-🎲 Hauptzahlen
-\(report.ticket.numbers.map(String.init).joined(separator: " • "))
-
-⭐ Eurozahlen
-\(report.ticket.euroNumbers.map(String.init).joined(separator: " • "))
-
-📈 EQI: \(String(format: "%.1f", report.eqi.value).replacingOccurrences(of: ".", with: ","))
-
-\(report.recommendation)
-
-────────────────────
+────────────
 
 """
         }
+
         text += "🍀 Viel Glück!"
         return text
     }
@@ -117,7 +113,20 @@ final class OptimizerViewModel: ObservableObject {
         )
 
         print("🥇 Beste Spielsysteme: \(bestTickets.count)")
-        reports = bestTickets.map { OptimizerReport(ticket: $0.ticket, eqi: EQI(value: $0.score)) }
+
+        let eqiCalculator = EQICalculator()
+
+        reports = bestTickets.map { result in
+            let eqi = eqiCalculator.calculate(
+                ticket: result.ticket,
+                draws: draws
+            )
+
+            return OptimizerReport(
+                ticket: result.ticket,
+                eqi: EQI(value: eqi)
+            )
+        }
 
         print("--------------------------------")
         print(String(format: "⏱ Gesamtzeit: %.2f Sekunden", Date().timeIntervalSince(start)))

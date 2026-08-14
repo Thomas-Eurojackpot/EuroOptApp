@@ -32,21 +32,30 @@ struct AlphaFrequencyBlendView: View {
                 Text("Fenstergebnisse").font(.headline)
                 HStack {
                     Text("Fenster").frame(width: 65, alignment: .leading)
-                    Text("Profil").frame(width: 65, alignment: .leading)
-                    Text("Alpha").frame(width: 95, alignment: .trailing)
-                    Text("F2 + Kon.").frame(width: 105, alignment: .trailing)
-                    Text("2+ A").frame(width: 65, alignment: .trailing)
-                    Text("2+ F2").frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("Profil").frame(width: 55, alignment: .leading)
+                    Text("A").frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("B").frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("C").frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("D").frame(maxWidth: .infinity, alignment: .trailing)
                 }.font(.caption).bold()
                 ForEach(result.windows, id: \.windowNumber) { window in
                     HStack {
-                        Text("\(window.windowNumber)").frame(width: 65, alignment: .leading)
-                        Text("P\(String(format: "%02d", window.alphaProfileID))").frame(width: 65, alignment: .leading)
-                        Text("\(window.alphaPoints) P").frame(width: 95, alignment: .trailing)
-                        Text("\(window.blendPoints) P").frame(width: 105, alignment: .trailing)
-                        Text("\(window.alphaHigherHits)").frame(width: 65, alignment: .trailing)
-                        Text("\(window.blendHigherHits)").frame(maxWidth: .infinity, alignment: .trailing)
-                    }.font(.system(.body, design: .monospaced))
+                        Text("\(window.windowNumber)")
+                            .frame(width: 55, alignment: .leading)
+                        Text("P\(String(format: "%02d", window.alphaProfileID))")
+                            .frame(width: 55, alignment: .leading)
+
+                        ForEach(window.points.indices, id: \.self) { index in
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("\(window.points[index]) P")
+                                Text("2+ \(window.higherHits[index])")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                    }
+                    .font(.system(.body, design: .monospaced))
                 }
                 Divider()
                 Text("Gesamtwertung").font(.headline)

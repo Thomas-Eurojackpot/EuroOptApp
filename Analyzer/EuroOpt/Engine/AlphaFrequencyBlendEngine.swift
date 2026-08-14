@@ -11,10 +11,8 @@ struct AlphaFrequencyConfirmationResult {
     struct WindowResult {
         let windowNumber: Int
         let alphaProfileID: Int
-        let alphaPoints: Int
-        let blendPoints: Int
-        let alphaHigherHits: Int
-        let blendHigherHits: Int
+        let points: [Int]
+        let higherHits: [Int]
     }
 
     let holdoutDraws: Int
@@ -24,11 +22,13 @@ struct AlphaFrequencyConfirmationResult {
 
 final class AlphaFrequencyBlendEngine {
     private let windowSize = 50
-    private let windowCount = 3
+    private let windowCount = 6
     private let warmup = WeightSweepCore.warmup
     private let recommendationCount = 9
-    private let f2Percent = 5
-    private let concentrationPercent = 30
+    private let variants: [(f2: Int, concentration: Int)] = [
+        (0, 0),
+        (0, 30)
+    ]
 
     func run(draws: [EuroJackpotDraw]) -> AlphaFrequencyConfirmationResult? {
         let totalHoldout = windowSize * windowCount
@@ -36,8 +36,7 @@ final class AlphaFrequencyBlendEngine {
 
         let holdoutStart = draws.count - totalHoldout
         var windowResults: [AlphaFrequencyConfirmationResult.WindowResult] = []
-        var alphaAccumulator = HitAccumulator()
-        var blendAccumulator = HitAccumulator()
+        var accumulators = variants.map { _ in HitAccumulator() }
 
         for window in 0..<windowCount {
             let windowStart = holdoutStart + window * windowSize
@@ -50,8 +49,7 @@ final class AlphaFrequencyBlendEngine {
             let generator = TicketGenerator()
             let candidateCount = WeightSweepCore.candidateCount()
 
-            var windowAlpha = HitAccumulator()
-            var windowBlend = HitAccumulator()
+            var windowAccumulators = variants.map { _ in HitAccumulator() }
 
             for index in windowStart..<windowEnd {
                 let training = Array(draws.prefix(index))
@@ -68,60 +66,86 @@ final class AlphaFrequencyBlendEngine {
                 let frequencyScores = normalize(frequencyScores(for: candidates, draws: training))
                 let concentrationScores = normalize(mainConcentrationScores(for: candidates, draws: training))
 
-                let blend = candidates.indices.map { candidateIndex in
-                    let f2 = Double(f2Percent) / 100.0
-                    let concentration = Double(concentrationPercent) / 100.0
+                for (variantIndex, variant) in variants.enumerated() {
+                    let f2 = Double(variant.f2) / 100.0
+                    let concentration = Double(variant.concentration) / 100.0
                     let alpha = max(0.0, 1.0 - f2 - concentration)
-                    return alpha * alphaScores[candidateIndex]
-                        + f2 * frequencyScores[candidateIndex]
-                        + concentration * concentrationScores[candidateIndex]
-                }
 
-                let alphaTickets = select(candidates: candidates, scores: alphaScores, limit: recommendationCount)
-                let blendTickets = select(candidates: candidates, scores: blend, limit: recommendationCount)
-                windowAlpha.add(tickets: alphaTickets, target: target)
-                windowBlend.add(tickets: blendTickets, target: target)
-                alphaAccumulator.add(tickets: alphaTickets, target: target)
-                blendAccumulator.add(tickets: blendTickets, target: target)
+                    let scores = candidates.indices.map { candidateIndex in
+                        alpha * alphaScores[candidateIndex]
+                            + f2 * frequencyScores[candidateIndex]
+                            + concentration * concentrationScores[candidateIndex]
+                    }
+
+                    let tickets = select(
+                        candidates: candidates,
+                        scores: scores,
+                        limit: recommendationCount
+                    )
+
+                    windowAccumulators[variantIndex].add(
+                        tickets: tickets,
+                        target: target
+                    )
+                    accumulators[variantIndex].add(
+                        tickets: tickets,
+                        target: target
+                    )
+                }
             }
 
             windowResults.append(.init(
                 windowNumber: window + 1,
                 alphaProfileID: winner.id,
-                alphaPoints: windowAlpha.points,
-                blendPoints: windowBlend.points,
-                alphaHigherHits: windowAlpha.higherHits,
-                blendHigherHits: windowBlend.higherHits
+                points: windowAccumulators.map { $0.points },
+                higherHits: windowAccumulators.map { $0.higherHits }
             ))
         }
 
-        let variants = [
-            AlphaFrequencyConfirmationResult.VariantResult(
-                label: "Alpha 7.5",
-                totalPoints: alphaAccumulator.points,
-                higherHits: alphaAccumulator.higherHits,
-                classes: alphaAccumulator.classes
-            ),
-            AlphaFrequencyConfirmationResult.VariantResult(
-                label: "Alpha + F2 5% + Konzentration 30%",
-                totalPoints: blendAccumulator.points,
-                higherHits: blendAccumulator.higherHits,
-                classes: blendAccumulator.classes
+        let results = variants.indices.map { index in
+            let variant = variants[index]
+            let accumulator = accumulators[index]
+
+            let label: String
+            if variant.f2 == 0 && variant.concentration == 0 {
+                label = "Alpha 7.5"
+            } else if variant.concentration == 0 {
+                label = "Alpha + F2 5%"
+            } else if variant.f2 == 0 {
+                label = "Alpha + Konzentration 30%"
+            } else {
+                label = "Alpha + F2 5% + Konzentration 30%"
+            }
+
+            return AlphaFrequencyConfirmationResult.VariantResult(
+                label: label,
+                totalPoints: accumulator.points,
+                higherHits: accumulator.higherHits,
+                classes: accumulator.classes
             )
-        ]
+        }
 
         print("===================================")
         print("🧪 ALPHA + F2-BESTÄTIGUNGSTEST")
         print("===================================")
         print("Fenster: \(windowCount) × \(windowSize) = \(totalHoldout) Ziehungen")
-        print("Vergleich: Alpha 7.5 vs. Alpha + F2 5% + Konzentration 30%")
+        print("Varianten: A=Alpha 7.5 | C=Alpha + Konzentration 30%")
         print("Jedes Fenster wählt sein Alpha-Profil nur aus der vorher verfügbaren Historie.")
         print("")
         for window in windowResults {
-            print(String(format: "Fenster %d | P%02d | Alpha %4d P / 2+ %2d | F2+Kon %4d P / 2+ %2d", window.windowNumber, window.alphaProfileID, window.alphaPoints, window.alphaHigherHits, window.blendPoints, window.blendHigherHits))
+            let lines = variants.indices.map { index in
+                let v = variants[index]
+                return String(format: "%@ %4d P / 2+ %2d",
+                    v.f2 == 0 && v.concentration == 0 ? "A" :
+                    v.f2 == 5 && v.concentration == 0 ? "B" :
+                    v.f2 == 0 && v.concentration == 30 ? "C" : "D",
+                    window.points[index],
+                    window.higherHits[index])
+            }
+            print("Fenster \(window.windowNumber) | P\(String(format: "%02d", window.alphaProfileID)) | " + lines.joined(separator: " | "))
         }
         print("")
-        for result in variants {
+        for result in results {
             print(String(format: "%-42@ | %4d Punkte | Ø %.3f | 2+ Haupt: %3d", result.label, result.totalPoints, Double(result.totalPoints) / Double(totalHoldout * recommendationCount), result.higherHits))
         }
         print("===================================")
@@ -129,7 +153,7 @@ final class AlphaFrequencyBlendEngine {
         return AlphaFrequencyConfirmationResult(
             holdoutDraws: totalHoldout,
             windows: windowResults,
-            variants: variants
+            variants: results
         )
     }
 
