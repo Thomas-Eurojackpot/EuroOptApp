@@ -48,9 +48,9 @@ final class OptimizerEngine {
 
         #if DEBUG
         if candidates.count == 500 {
-            ConcentrationDiagnostic().run(
+            runConcentrationDiagnostic(
                 candidates: candidates,
-                draws: draws,
+                ranked: ranked,
                 limit: limit
             )
         }
@@ -59,8 +59,8 @@ final class OptimizerEngine {
         var result: [(ticket: Ticket, score: Double)] = []
         result.reserveCapacity(limit)
 
-        for index in diagnosticIndices {
-            let candidate = candidates[index]
+        for item in ranked.prefix(keepCount) {
+            let candidate = candidates[item.index]
             var different = true
 
             for existing in result {
@@ -71,7 +71,7 @@ final class OptimizerEngine {
             }
 
             if different {
-                result.append((ticket: candidate, score: rankedScore(for: index, ranked: ranked)))
+                result.append((ticket: candidate, score: item.score))
                 if result.count == limit { break }
             }
         }
@@ -80,7 +80,6 @@ final class OptimizerEngine {
         return result
     }
 
-    // Diagnostic access: same Alpha 7.6 ranking, without changing production selection.
     func rankedTicketsForDiagnostic(
         from candidates: [Ticket],
         draws: [EuroJackpotDraw]
@@ -121,13 +120,6 @@ final class OptimizerEngine {
         }
     }
 
-    private func rankedScore(
-        for index: Int,
-        ranked: [(index: Int, score: Double)]
-    ) -> Double {
-        ranked.first(where: { $0.index == index })?.score ?? 0.0
-    }
-
     private func printDiversityDiagnostics(
         candidates: [Ticket],
         indices: [Int]
@@ -166,6 +158,69 @@ final class OptimizerEngine {
             print(String(format: "   %2d → %2d Kandidaten", number, frequencies[number]))
         }
         print("--------------------------------")
+    }
+
+    private func runConcentrationDiagnostic(
+        candidates: [Ticket],
+        ranked: [(index: Int, score: Double)],
+        limit: Int
+    ) {
+        let poolSize = min(max(limit * 4, 32), ranked.count)
+        let basePool = Array(ranked.prefix(poolSize))
+        let variants: [(String, Double)] = [
+            ("C20", 0.20),
+            ("C30", 0.30),
+            ("C40", 0.40),
+            ("C50", 0.50)
+        ]
+
+        print("================================")
+        print("🔬 ALPHA 7.6 KONZENTRATIONSTEST")
+        print("================================")
+        print("Basis-Pool: \(basePool.count) Kandidaten")
+
+        for (name, fraction) in variants {
+            let maximum = max(1, Int(ceil(Double(basePool.count) * fraction)))
+            var frequencies = Array(repeating: 0, count: 51)
+            var selected: [(index: Int, score: Double)] = []
+
+            for item in basePool {
+                let allowed = item.index >= 0 && candidates[item.index].numbers.allSatisfy { number in
+                    guard (1...50).contains(number) else { return true }
+                    return frequencies[number] < maximum
+                }
+
+                if allowed {
+                    selected.append(item)
+                    for number in candidates[item.index].numbers where (1...50).contains(number) {
+                        frequencies[number] += 1
+                    }
+                }
+            }
+
+            var tickets: [Ticket] = []
+            for item in selected {
+                let ticket = candidates[item.index]
+                if tickets.allSatisfy({ commonNumbers($0, ticket) < 3 }) {
+                    tickets.append(ticket)
+                }
+                if tickets.count == limit { break }
+            }
+
+            let distinct = Set(tickets.flatMap(\.numbers)).count
+            let maxUsed = frequencies.dropFirst().max() ?? 0
+
+            print(String(format: "%@  max %2d/%2d  Pool %2d  Tickets %2d  Hauptzahlen %2d/50  MaxFreq %2d",
+                         name,
+                         maximum,
+                         basePool.count,
+                         selected.count,
+                         tickets.count,
+                         distinct,
+                         maxUsed))
+        }
+
+        print("================================")
     }
 
     private func mainConcentrationScores(
