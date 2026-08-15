@@ -43,7 +43,7 @@ final class OptimizerEngine {
 
         printDiversityDiagnostics(
             candidates: candidates,
-            indices: diagnosticIndices
+            indices: diagnosticIndices.map(\.index)
         )
 
         if candidates.count == 500 {
