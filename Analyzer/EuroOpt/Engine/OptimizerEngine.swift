@@ -52,6 +52,13 @@ final class OptimizerEngine {
                 ranked: ranked,
                 limit: limit
             )
+
+            if ProcessInfo.processInfo.environment["EUROOPT_C40_HOLDOUT"] == "1" {
+                runC40HoldoutComparison(
+                    draws: draws,
+                    recommendationCount: limit
+                )
+            }
         }
 
         var result: [(ticket: Ticket, score: Double)] = []
@@ -217,8 +224,155 @@ final class OptimizerEngine {
                          distinct,
                          maxUsed))
         }
-
         print("================================")
+    }
+
+    private func runC40HoldoutComparison(
+        draws: [EuroJackpotDraw],
+        recommendationCount: Int
+    ) {
+        guard draws.count > 140 else { return }
+
+        let start = Date()
+        let candidateCount = max(AppSettings.backtestCandidateCount + 1, 301)
+        let firstIndex = 100
+        let generator = TicketGenerator()
+
+        var originalHits = 0
+        var originalEuroHits = 0
+        var originalTickets = 0
+        var c40Hits = 0
+        var c40EuroHits = 0
+        var c40Tickets = 0
+
+        print("")
+        print("===================================")
+        print("🧪 ALPHA 7.6 C40 HOLDOUT-VERGLEICH")
+        print("===================================")
+        print("Ziehungen           : \(draws.count - firstIndex)")
+        print("Kandidaten je Test  : \(candidateCount)")
+        print("Empfehlungen        : \(recommendationCount)")
+        print("Basis-Pool          : 36")
+        print("C40-Limit           : 15 Vorkommen je Hauptzahl")
+        print("🔒 C40 wird nur bei der Ticket-Auswahl angewendet.")
+        print("")
+
+        for index in firstIndex..<draws.count {
+            let trainingDraws = Array(draws.prefix(index))
+            let targetDraw = draws[index]
+            let candidates = generator.generate(
+                count: candidateCount,
+                draws: trainingDraws,
+                goal: OptimizationGoal(),
+                hillClimbingIterations: 0
+            )
+
+            let ranked = ranked(from: candidates, draws: trainingDraws)
+            let basePool = Array(ranked.prefix(min(36, ranked.count)))
+
+            let original = diverseTickets(
+                ranked: basePool,
+                candidates: candidates,
+                limit: recommendationCount
+            )
+
+            let cappedPool = concentrationCappedPool(
+                ranked: basePool,
+                candidates: candidates,
+                maximum: 15
+            )
+
+            let c40 = diverseTickets(
+                ranked: cappedPool,
+                candidates: candidates,
+                limit: recommendationCount
+            )
+
+            for ticket in original {
+                originalHits += Set(ticket.numbers).intersection(targetDraw.numbers).count
+                originalEuroHits += Set(ticket.euroNumbers).intersection(targetDraw.euroNumbers).count
+            }
+            originalTickets += original.count
+
+            for ticket in c40 {
+                c40Hits += Set(ticket.numbers).intersection(targetDraw.numbers).count
+                c40EuroHits += Set(ticket.euroNumbers).intersection(targetDraw.euroNumbers).count
+            }
+            c40Tickets += c40.count
+
+            let current = index - firstIndex + 1
+            if current.isMultiple(of: 50) {
+                print("... Holdout \(current) / \(draws.count - firstIndex)")
+            }
+        }
+
+        let originalMain = originalTickets > 0 ? Double(originalHits) / Double(originalTickets) : 0
+        let originalEuro = originalTickets > 0 ? Double(originalEuroHits) / Double(originalTickets) : 0
+        let c40Main = c40Tickets > 0 ? Double(c40Hits) / Double(c40Tickets) : 0
+        let c40Euro = c40Tickets > 0 ? Double(c40EuroHits) / Double(c40Tickets) : 0
+
+        print("")
+        print("-----------------------------------")
+        print("ALPHA 7.6 ORIGINAL")
+        print("-----------------------------------")
+        print(String(format: "Ø Haupttreffer      : %.3f", originalMain))
+        print(String(format: "Ø Eurotreffer       : %.3f", originalEuro))
+        print("-----------------------------------")
+        print("ALPHA 7.6 + C40")
+        print("-----------------------------------")
+        print(String(format: "Ø Haupttreffer      : %.3f", c40Main))
+        print(String(format: "Ø Eurotreffer       : %.3f", c40Euro))
+        print("-----------------------------------")
+        print("C40 vs. Original")
+        print(String(format: "Δ Haupttreffer      : %+.3f", c40Main - originalMain))
+        print(String(format: "Δ Eurotreffer       : %+.3f", c40Euro - originalEuro))
+        print(String(format: "Kombiniertes Δ      : %+.3f", (c40Main - originalMain) + (c40Euro - originalEuro)))
+        print(String(format: "⏱ C40-Holdout: %.2f Sekunden", Date().timeIntervalSince(start)))
+        print("===================================")
+    }
+
+    private func concentrationCappedPool(
+        ranked: [(index: Int, score: Double)],
+        candidates: [Ticket],
+        maximum: Int
+    ) -> [(index: Int, score: Double)] {
+        var frequencies = Array(repeating: 0, count: 51)
+        var result: [(index: Int, score: Double)] = []
+        result.reserveCapacity(ranked.count)
+
+        for item in ranked {
+            let allowed = candidates[item.index].numbers.allSatisfy { number in
+                guard (1...50).contains(number) else { return true }
+                return frequencies[number] < maximum
+            }
+
+            if allowed {
+                result.append(item)
+                for number in candidates[item.index].numbers where (1...50).contains(number) {
+                    frequencies[number] += 1
+                }
+            }
+        }
+
+        return result
+    }
+
+    private func diverseTickets(
+        ranked: [(index: Int, score: Double)],
+        candidates: [Ticket],
+        limit: Int
+    ) -> [Ticket] {
+        var result: [Ticket] = []
+        result.reserveCapacity(limit)
+
+        for item in ranked {
+            let ticket = candidates[item.index]
+            if result.allSatisfy({ commonNumbers($0, ticket) < 3 }) {
+                result.append(ticket)
+            }
+            if result.count == limit { break }
+        }
+        return result
     }
 
     private func mainConcentrationScores(
