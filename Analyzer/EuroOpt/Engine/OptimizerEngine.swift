@@ -86,10 +86,16 @@ final class OptimizerEngine {
             ranked.count
         )
 
+        let diagnosticIndices = Array(ranked.prefix(keepCount))
+        printDiversityDiagnostics(
+            candidates: candidates,
+            indices: diagnosticIndices
+        )
+
         var result: [(ticket: Ticket, score: Double)] = []
         result.reserveCapacity(limit)
 
-        for index in ranked.prefix(keepCount) {
+        for index in diagnosticIndices {
 
             let candidate = candidates[index]
 
@@ -124,6 +130,59 @@ final class OptimizerEngine {
         print("✅ Alpha 7.6 Optimizer fertig (\(result.count) Tickets)")
 
         return result
+    }
+
+    // MARK: - Diversity Diagnostics
+
+    private func printDiversityDiagnostics(
+        candidates: [Ticket],
+        indices: [Int]
+    ) {
+
+        guard !indices.isEmpty else {
+            return
+        }
+
+        var frequencies = Array(
+            repeating: 0,
+            count: 51
+        )
+
+        for index in indices {
+            for number in candidates[index].numbers
+            where (1...50).contains(number) {
+                frequencies[number] += 1
+            }
+        }
+
+        let usedNumbers = frequencies
+            .enumerated()
+            .filter { $0.offset > 0 && $0.element > 0 }
+
+        let sorted = usedNumbers.sorted {
+            if $0.element == $1.element {
+                return $0.offset < $1.offset
+            }
+            return $0.element > $1.element
+        }
+
+        print("--------------------------------")
+        print("🔎 DIVERSITÄTS-DIAGNOSE ALPHA 7.6")
+        print("Top-Kandidaten im Auswahlpool: \(indices.count)")
+        print("Verschiedene Hauptzahlen: \(usedNumbers.count) / 50")
+
+        print("Häufigste Hauptzahlen:")
+        for item in sorted.prefix(15) {
+            print(String(format: "   %2d → %2d Kandidaten", item.offset, item.element))
+        }
+
+        let probeNumbers = [5, 28, 40]
+        print("Prüfzahlen:")
+        for number in probeNumbers {
+            print(String(format: "   %2d → %2d Kandidaten", number, frequencies[number]))
+        }
+
+        print("--------------------------------")
     }
 
     // MARK: - Concentration
