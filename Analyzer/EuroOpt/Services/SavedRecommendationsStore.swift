@@ -40,6 +40,11 @@ final class SavedRecommendationsStore {
 
     func load() -> SavedRecommendations? {
 
+#if DEBUG
+        // Diagnose Alpha 7.6 from a clean optimizer run.
+        // The production release keeps the normal persistence behavior.
+        return nil
+#else
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return nil
         }
@@ -57,6 +62,7 @@ final class SavedRecommendationsStore {
             print(error)
             return nil
         }
+#endif
     }
 
     func save(
