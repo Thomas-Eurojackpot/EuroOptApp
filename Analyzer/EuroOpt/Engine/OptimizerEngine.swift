@@ -10,28 +10,15 @@ import Foundation
 
 final class OptimizerEngine {
 
-    // MARK: - Properties
-
     private let scoreEngine: ScoreEngine
-
     private let alphaWeight = 0.70
     private let concentrationWeight = 0.30
 
-    // MARK: - Initializer
-
-    init(
-        goal: OptimizationGoal = OptimizationGoal()
-    ) {
-        self.scoreEngine = ScoreEngine(
-            goal: goal
-        )
+    init(goal: OptimizationGoal = OptimizationGoal()) {
+        self.scoreEngine = ScoreEngine(goal: goal)
     }
 
-    // MARK: - Public
-
-    func updateGoal(
-        _ goal: OptimizationGoal
-    ) {
+    func updateGoal(_ goal: OptimizationGoal) {
         scoreEngine.updateGoal(goal)
     }
 
@@ -42,22 +29,68 @@ final class OptimizerEngine {
         limit: Int = 8
     ) -> [(ticket: Ticket, score: Double)] {
 
-        if let goal {
-            scoreEngine.updateGoal(goal)
-        }
+        if let goal { scoreEngine.updateGoal(goal) }
 
         print("🎯 Alpha 7.6 bewertet \(candidates.count) Tickets")
         print("⚖️ Gewichtung: 70 % Alpha + 30 % Konzentration")
 
-        guard !candidates.isEmpty else {
-            return []
+        guard !candidates.isEmpty else { return [] }
+
+        let ranked = rankedTickets(
+            from: candidates,
+            draws: draws
+        )
+
+        let keepCount = min(max(limit * 4, 32), ranked.count)
+        let diagnosticIndices = Array(ranked.prefix(keepCount))
+
+        printDiversityDiagnostics(
+            candidates: candidates,
+            indices: diagnosticIndices
+        )
+
+        var result: [(ticket: Ticket, score: Double)] = []
+        result.reserveCapacity(limit)
+
+        for index in diagnosticIndices {
+            let candidate = candidates[index]
+            var different = true
+
+            for existing in result {
+                if commonNumbers(existing.ticket, candidate) >= 3 {
+                    different = false
+                    break
+                }
+            }
+
+            if different {
+                result.append((ticket: candidate, score: rankedScore(for: index, ranked: ranked)))
+                if result.count == limit { break }
+            }
         }
 
+        print("✅ Alpha 7.6 Optimizer fertig (\(result.count) Tickets)")
+        return result
+    }
+
+    // Diagnostic access: same Alpha 7.6 ranking, without changing production selection.
+    func rankedTicketsForDiagnostic(
+        from candidates: [Ticket],
+        draws: [EuroJackpotDraw]
+    ) -> [(ticket: Ticket, score: Double)] {
+        guard !candidates.isEmpty else { return [] }
+        return ranked(from: candidates, draws: draws).map {
+            (ticket: candidates[$0.index], score: $0.score)
+        }
+    }
+
+    private func ranked(
+        from candidates: [Ticket],
+        draws: [EuroJackpotDraw]
+    ) -> [(index: Int, score: Double)] {
+
         let alphaScores = candidates.map {
-            scoreEngine.score(
-                ticket: $0,
-                draws: draws
-            )
+            scoreEngine.score(ticket: $0, draws: draws)
         }
 
         let concentrationScores = mainConcentrationScores(
@@ -73,96 +106,40 @@ final class OptimizerEngine {
                 + concentrationWeight * normalizedConcentration[index]
         }
 
-        let ranked = candidates.indices.sorted {
-            if blendedScores[$0] == blendedScores[$1] {
-                return $0 < $1
-            }
-
+        return candidates.indices.sorted {
+            if blendedScores[$0] == blendedScores[$1] { return $0 < $1 }
             return blendedScores[$0] > blendedScores[$1]
+        }.map {
+            (index: $0, score: blendedScores[$0])
         }
-
-        let keepCount = min(
-            max(limit * 4, 32),
-            ranked.count
-        )
-
-        let diagnosticIndices = Array(ranked.prefix(keepCount))
-        printDiversityDiagnostics(
-            candidates: candidates,
-            indices: diagnosticIndices
-        )
-
-        var result: [(ticket: Ticket, score: Double)] = []
-        result.reserveCapacity(limit)
-
-        for index in diagnosticIndices {
-
-            let candidate = candidates[index]
-
-            var different = true
-
-            for existing in result {
-
-                if commonNumbers(
-                    existing.ticket,
-                    candidate
-                ) >= 3 {
-
-                    different = false
-                    break
-                }
-            }
-
-            if different {
-                result.append(
-                    (
-                        ticket: candidate,
-                        score: blendedScores[index]
-                    )
-                )
-
-                if result.count == limit {
-                    break
-                }
-            }
-        }
-
-        print("✅ Alpha 7.6 Optimizer fertig (\(result.count) Tickets)")
-
-        return result
     }
 
-    // MARK: - Diversity Diagnostics
+    private func rankedScore(
+        for index: Int,
+        ranked: [(index: Int, score: Double)]
+    ) -> Double {
+        ranked.first(where: { $0.index == index })?.score ?? 0.0
+    }
 
     private func printDiversityDiagnostics(
         candidates: [Ticket],
         indices: [Int]
     ) {
+        guard !indices.isEmpty else { return }
 
-        guard !indices.isEmpty else {
-            return
-        }
-
-        var frequencies = Array(
-            repeating: 0,
-            count: 51
-        )
+        var frequencies = Array(repeating: 0, count: 51)
 
         for index in indices {
-            for number in candidates[index].numbers
-            where (1...50).contains(number) {
+            for number in candidates[index].numbers where (1...50).contains(number) {
                 frequencies[number] += 1
             }
         }
 
-        let usedNumbers = frequencies
-            .enumerated()
+        let usedNumbers = frequencies.enumerated()
             .filter { $0.offset > 0 && $0.element > 0 }
 
         let sorted = usedNumbers.sorted {
-            if $0.element == $1.element {
-                return $0.offset < $1.offset
-            }
+            if $0.element == $1.element { return $0.offset < $1.offset }
             return $0.element > $1.element
         }
 
@@ -170,8 +147,8 @@ final class OptimizerEngine {
         print("🔎 DIVERSITÄTS-DIAGNOSE ALPHA 7.6")
         print("Top-Kandidaten im Auswahlpool: \(indices.count)")
         print("Verschiedene Hauptzahlen: \(usedNumbers.count) / 50")
-
         print("Häufigste Hauptzahlen:")
+
         for item in sorted.prefix(15) {
             print(String(format: "   %2d → %2d Kandidaten", item.offset, item.element))
         }
@@ -181,11 +158,8 @@ final class OptimizerEngine {
         for number in probeNumbers {
             print(String(format: "   %2d → %2d Kandidaten", number, frequencies[number]))
         }
-
         print("--------------------------------")
     }
-
-    // MARK: - Concentration
 
     private func mainConcentrationScores(
         for tickets: [Ticket],
@@ -193,24 +167,16 @@ final class OptimizerEngine {
     ) -> [Double] {
 
         let mainRank = rankMap(
-            counts(
-                draws: draws,
-                range: 1...50
-            ),
+            counts(draws: draws, range: 1...50),
             range: 1...50
         )
 
         return tickets.map { ticket in
-
             let ranks = ticket.numbers
-                .map {
-                    mainRank[$0, default: 0]
-                }
+                .map { mainRank[$0, default: 0] }
                 .sorted(by: >)
 
-            guard ranks.count == 5 else {
-                return 0.0
-            }
+            guard ranks.count == 5 else { return 0.0 }
 
             return ranks[0] * 0.35
                 + ranks[1] * 0.25
@@ -220,28 +186,18 @@ final class OptimizerEngine {
         }
     }
 
-    // MARK: - Frequency Rank
-
     private func counts(
         draws: [EuroJackpotDraw],
         range: ClosedRange<Int>
     ) -> [Int: Int] {
 
-        var result = Dictionary(
-            uniqueKeysWithValues: range.map {
-                ($0, 0)
-            }
-        )
+        var result = Dictionary(uniqueKeysWithValues: range.map { ($0, 0) })
 
         for draw in draws {
-
-            for value in draw.numbers
-            where range.contains(value) {
-
+            for value in draw.numbers where range.contains(value) {
                 result[value, default: 0] += 1
             }
         }
-
         return result
     }
 
@@ -251,68 +207,36 @@ final class OptimizerEngine {
     ) -> [Int: Double] {
 
         let ranked = range.sorted {
-
-            if counts[$0, default: 0] == counts[$1, default: 0] {
-                return $0 < $1
-            }
-
+            if counts[$0, default: 0] == counts[$1, default: 0] { return $0 < $1 }
             return counts[$0, default: 0] > counts[$1, default: 0]
         }
 
-        let denominator = Double(
-            max(1, ranked.count - 1)
-        )
+        let denominator = Double(max(1, ranked.count - 1))
 
-        return Dictionary(
-            uniqueKeysWithValues:
-                ranked.enumerated().map {
-                    (
-                        $0.element,
-                        1.0 - Double($0.offset) / denominator
-                    )
-                }
-        )
+        return Dictionary(uniqueKeysWithValues: ranked.enumerated().map {
+            ($0.element, 1.0 - Double($0.offset) / denominator)
+        })
     }
 
-    private func normalize(
-        _ values: [Double]
-    ) -> [Double] {
-
-        guard
-            let minValue = values.min(),
-            let maxValue = values.max(),
-            maxValue > minValue
-        else {
+    private func normalize(_ values: [Double]) -> [Double] {
+        guard let minValue = values.min(),
+              let maxValue = values.max(),
+              maxValue > minValue else {
             return values.map { _ in 0.5 }
         }
 
-        return values.map {
-            ($0 - minValue) / (maxValue - minValue)
-        }
+        return values.map { ($0 - minValue) / (maxValue - minValue) }
     }
 
-    // MARK: - Private
-
     @inline(__always)
-    private func commonNumbers(
-        _ lhs: Ticket,
-        _ rhs: Ticket
-    ) -> Int {
-
+    private func commonNumbers(_ lhs: Ticket, _ rhs: Ticket) -> Int {
         var count = 0
-
         for number in lhs.numbers {
-
             if rhs.numbers.contains(number) {
-
                 count += 1
-
-                if count >= 3 {
-                    return count
-                }
+                if count >= 3 { return count }
             }
         }
-
         return count
     }
 }
