@@ -27,15 +27,17 @@ struct ConcentrationDiagnostic {
         }
 
         let optimizer = OptimizerEngine()
-        let ranked = optimizer.rankedTicketsForDiagnostic(
+        let ranked = optimizer.bestTickets(
             from: candidates,
-            draws: draws
+            draws: draws,
+            limit: 36
         )
 
         print("================================")
         print("🔬 ALPHA 7.6 KONZENTRATIONSTEST")
         print("================================")
         print("Kandidaten: \(candidates.count)")
+        print("Referenzpool: \(ranked.count) Alpha-7.6-Tickets")
         print("")
 
         for variant in limits {
