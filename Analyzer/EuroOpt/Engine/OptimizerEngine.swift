@@ -46,7 +46,6 @@ final class OptimizerEngine {
             indices: diagnosticIndices
         )
 
-        #if DEBUG
         if candidates.count == 500 {
             runConcentrationDiagnostic(
                 candidates: candidates,
@@ -54,7 +53,6 @@ final class OptimizerEngine {
                 limit: limit
             )
         }
-        #endif
 
         var result: [(ticket: Ticket, score: Double)] = []
         result.reserveCapacity(limit)
