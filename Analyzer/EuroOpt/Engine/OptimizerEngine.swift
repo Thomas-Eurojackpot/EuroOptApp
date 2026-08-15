@@ -36,10 +36,7 @@ final class OptimizerEngine {
 
         guard !candidates.isEmpty else { return [] }
 
-        let ranked = rankedTickets(
-            from: candidates,
-            draws: draws
-        )
+        let ranked = ranked(from: candidates, draws: draws)
 
         let keepCount = min(max(limit * 4, 32), ranked.count)
         let diagnosticIndices = Array(ranked.prefix(keepCount))
@@ -48,6 +45,16 @@ final class OptimizerEngine {
             candidates: candidates,
             indices: diagnosticIndices
         )
+
+        #if DEBUG
+        if candidates.count == 500 {
+            ConcentrationDiagnostic().run(
+                candidates: candidates,
+                draws: draws,
+                limit: limit
+            )
+        }
+        #endif
 
         var result: [(ticket: Ticket, score: Double)] = []
         result.reserveCapacity(limit)
