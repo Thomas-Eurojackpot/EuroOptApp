@@ -46,15 +46,11 @@ struct PortfolioHoldoutDiagnostic {
             let ranked = rankingEngine.rankedTicketsForDiagnostic(
                 from: candidates,
                 draws: trainingDraws
-            ).enumerated().map { ($0.offset, $0.element.score) }
+            )
+            let pool = Array(ranked.prefix(min(36, ranked.count)))
 
-            let indexedRanked = ranked.map {
-                (index: $0.0, score: $0.1)
-            }
-
-            let pool = Array(indexedRanked.prefix(min(36, indexedRanked.count)))
-            let original = selectOriginal(pool: pool, candidates: candidates, limit: recommendationCount)
-            let portfolio = selectPortfolio(pool: pool, candidates: candidates, limit: recommendationCount)
+            let original = selectOriginal(pool: pool, limit: recommendationCount)
+            let portfolio = selectPortfolio(pool: pool, limit: recommendationCount)
 
             for ticket in original {
                 originalHits += Set(ticket.numbers).intersection(targetDraw.numbers).count
@@ -100,15 +96,13 @@ struct PortfolioHoldoutDiagnostic {
     }
 
     private func selectOriginal(
-        pool: [(index: Int, score: Double)],
-        candidates: [Ticket],
+        pool: [(ticket: Ticket, score: Double)],
         limit: Int
     ) -> [Ticket] {
         var selected: [Ticket] = []
         for item in pool {
-            let ticket = candidates[item.index]
-            if selected.allSatisfy({ commonNumbers($0, ticket) < 3 }) {
-                selected.append(ticket)
+            if selected.allSatisfy({ commonNumbers($0, item.ticket) < 3 }) {
+                selected.append(item.ticket)
             }
             if selected.count == limit { break }
         }
@@ -116,8 +110,7 @@ struct PortfolioHoldoutDiagnostic {
     }
 
     private func selectPortfolio(
-        pool: [(index: Int, score: Double)],
-        candidates: [Ticket],
+        pool: [(ticket: Ticket, score: Double)],
         limit: Int
     ) -> [Ticket] {
         guard !pool.isEmpty, limit > 0 else { return [] }
@@ -132,7 +125,7 @@ struct PortfolioHoldoutDiagnostic {
 
             for position in pool.indices {
                 let item = pool[position]
-                let ticket = candidates[item.index]
+                let ticket = item.ticket
                 guard !selected.contains(where: { $0.numbers == ticket.numbers && $0.euroNumbers == ticket.euroNumbers }) else { continue }
 
                 let newNumbers = ticket.numbers.filter { !usedNumbers.contains($0) }.count
@@ -151,8 +144,7 @@ struct PortfolioHoldoutDiagnostic {
             }
 
             guard let bestPosition else { break }
-            let item = pool[bestPosition]
-            let ticket = candidates[item.index]
+            let ticket = pool[bestPosition].ticket
             selected.append(ticket)
             usedNumbers.formUnion(ticket.numbers)
         }
