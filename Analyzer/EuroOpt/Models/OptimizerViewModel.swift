@@ -33,6 +33,32 @@ final class OptimizerViewModel: ObservableObject {
 
     @Published var isRobustnessRunning = false
     @Published var robustnessStatus = "Noch keine Robustheitsanalyse gestartet"
+    @Published var isHistoryWindowRunning = false
+    @Published var historyWindowStatus = "Noch kein History-Window-Test gestartet"
+
+    @Published var isHistoryWindowRobustnessRunning = false
+    @Published var historyWindowRobustnessStatus = "Noch kein History-Window-Robustheitstest gestartet"
+
+    @Published var isHistoryWindowPairRunning = false
+    @Published var historyWindowPairStatus = "Noch kein W150/W300-Paarvergleich gestartet"
+
+    @Published var isHistoryWindowFullPairRunning = false
+    @Published var historyWindowFullPairStatus = "Noch kein FULL/W300-Paarvergleich gestartet"
+
+    @Published var isConcentrationWeightDiagnosticRunning = false
+    @Published var concentrationWeightDiagnosticStatus = "Noch kein Alpha/Konzentration-Ablationstest gestartet"
+
+    @Published var isConcentrationPairRunning = false
+    @Published var concentrationPairStatus = "Noch kein A70C30/A60C40-Paarvergleich gestartet"
+
+    @Published var isRecommendationStabilityRunning = false
+    @Published var recommendationStabilityStatus = "Noch kein Empfehlungs-Stabilitätstest gestartet"
+
+    @Published var isNumberFrequencyRunning = false
+    @Published var numberFrequencyStatus = "Noch kein Zahlen-Frequenz-Test gestartet"
+
+    @Published var isNumberComponentAblationRunning = false
+    @Published var numberComponentAblationStatus = "Noch keine Score-Komponenten-Ablation gestartet"
 
     @Published var isLearning = false
     @Published var learningStatus = "Noch kein Lernlauf gestartet"
@@ -403,6 +429,393 @@ final class OptimizerViewModel: ObservableObject {
             DispatchQueue.main.async {
                 self.robustnessStatus = "Robustheitsanalyse beendet – Ergebnisse im Konsolen-Output"
                 self.isRobustnessRunning = false
+            }
+        }
+    }
+
+    func runHistoryWindowTest() {
+        guard !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        isHistoryWindowRunning = true
+        historyWindowStatus = "History-Window-Test läuft..."
+
+        print("===================================")
+        print("🔬 ALPHA 7.6 HISTORY-WINDOW TEST")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            HistoryWindowDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+
+            DispatchQueue.main.async {
+                self.historyWindowStatus = "History-Window-Test beendet – Ergebnisse im Konsolen-Output"
+                self.isHistoryWindowRunning = false
+            }
+        }
+    }
+
+    func runHistoryWindowRobustnessTest() {
+        guard !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        isHistoryWindowRobustnessRunning = true
+        historyWindowRobustnessStatus = "History-Window-Robustheit läuft..."
+
+        print("===================================")
+        print("🧪 HISTORY-WINDOW ROBUSTHEIT")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            HistoryWindowRobustnessDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount,
+                splitCount: 5
+            )
+
+            DispatchQueue.main.async {
+                self.historyWindowRobustnessStatus = "History-Window-Robustheit beendet – Ergebnisse im Konsolen-Output"
+                self.isHistoryWindowRobustnessRunning = false
+            }
+        }
+    }
+
+    func runHistoryWindowPairTest() {
+        guard !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        isHistoryWindowPairRunning = true
+        historyWindowPairStatus = "W150/W300-Paarvergleich läuft..."
+
+        print("===================================")
+        print("🧪 W150 vs. W300 – PAARVERGLEICH")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            HistoryWindowPairDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount,
+                splitCount: 10
+            )
+
+            DispatchQueue.main.async {
+                self.historyWindowPairStatus = "W150/W300-Paarvergleich beendet – Ergebnisse im Konsolen-Output"
+                self.isHistoryWindowPairRunning = false
+            }
+        }
+    }
+
+    func runHistoryWindowFullPairTest() {
+        guard !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        isHistoryWindowFullPairRunning = true
+        historyWindowFullPairStatus = "FULL/W300-Paarvergleich läuft..."
+
+        print("===================================")
+        print("🧪 FULL vs. W300 – PAARVERGLEICH")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            HistoryWindowFullPairDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount,
+                splitCount: 10
+            )
+
+            DispatchQueue.main.async {
+                self.historyWindowFullPairStatus = "FULL/W300-Paarvergleich beendet – Ergebnisse im Konsolen-Output"
+                self.isHistoryWindowFullPairRunning = false
+            }
+        }
+    }
+
+    func runConcentrationWeightDiagnostic() {
+        guard !isConcentrationWeightDiagnosticRunning,
+              !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        isConcentrationWeightDiagnosticRunning = true
+        concentrationWeightDiagnosticStatus = "Alpha/Konzentration-Ablation läuft..."
+
+        print("===================================")
+        print("🧪 ALPHA / KONZENTRATION – ABLATION")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            ConcentrationWeightDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount,
+                splitCount: 10
+            )
+
+            DispatchQueue.main.async {
+                self.concentrationWeightDiagnosticStatus = "Alpha/Konzentration-Ablation beendet – Ergebnisse im Konsolen-Output"
+                self.isConcentrationWeightDiagnosticRunning = false
+            }
+        }
+    }
+
+    func runConcentrationPairTest() {
+        guard !isConcentrationPairRunning,
+              !isConcentrationWeightDiagnosticRunning,
+              !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        isConcentrationPairRunning = true
+        concentrationPairStatus = "A70C30/A60C40-Paarvergleich läuft..."
+
+        print("===================================")
+        print("🧪 A70C30 vs. A60C40")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            ConcentrationPairDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount,
+                splitCount: 10
+            )
+
+            DispatchQueue.main.async {
+                self.concentrationPairStatus = "A70C30/A60C40-Paarvergleich beendet – Ergebnisse im Konsolen-Output"
+                self.isConcentrationPairRunning = false
+            }
+        }
+    }
+
+    func runRecommendationStabilityTest() {
+        guard !isRecommendationStabilityRunning,
+              !isConcentrationPairRunning,
+              !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isConcentrationWeightDiagnosticRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        isRecommendationStabilityRunning = true
+        recommendationStabilityStatus = "Empfehlungs-Stabilitätstest läuft..."
+
+        print("===================================")
+        print("🔬 ALPHA 7.6 EMPFEHLUNGS-STABILITÄT")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            RecommendationStabilityDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount,
+                runCount: 10
+            )
+
+            DispatchQueue.main.async {
+                self.recommendationStabilityStatus = "Empfehlungs-Stabilitätstest beendet – Ergebnisse im Konsolen-Output"
+                self.isRecommendationStabilityRunning = false
+            }
+        }
+    }
+
+    func runNumberFrequencyTest() {
+        guard !isNumberFrequencyRunning,
+              !isRecommendationStabilityRunning,
+              !isConcentrationPairRunning,
+              !isConcentrationWeightDiagnosticRunning,
+              !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        isNumberFrequencyRunning = true
+        numberFrequencyStatus = "Zahlen-Frequenz-Test läuft..."
+
+        print("===================================")
+        print("🔬 ALPHA 7.6 ZAHLEN-FREQUENZ-KONTROLLE")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            NumberFrequencyDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount,
+                runCount: 10
+            )
+
+            DispatchQueue.main.async {
+                self.numberFrequencyStatus = "Zahlen-Frequenz-Test beendet – Ergebnisse im Konsolen-Output"
+                self.isNumberFrequencyRunning = false
+            }
+        }
+    }
+
+    func runNumberComponentAblationTest() {
+        guard !isNumberComponentAblationRunning,
+              !isNumberFrequencyRunning,
+              !isRecommendationStabilityRunning,
+              !isConcentrationPairRunning,
+              !isConcentrationWeightDiagnosticRunning,
+              !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        isNumberComponentAblationRunning = true
+        numberComponentAblationStatus = "Score-Komponenten-Ablation läuft..."
+
+        print("===================================")
+        print("🔬 ALPHA 7.6 SCORE-KOMPONENTEN-ABLATION")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            NumberComponentAblationDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount,
+                runCount: 10
+            )
+
+            DispatchQueue.main.async {
+                self.numberComponentAblationStatus =
+                    "Score-Komponenten-Ablation beendet – Ergebnisse im Konsolen-Output"
+                self.isNumberComponentAblationRunning = false
             }
         }
     }

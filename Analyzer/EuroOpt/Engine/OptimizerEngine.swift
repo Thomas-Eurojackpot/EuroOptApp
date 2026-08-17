@@ -52,13 +52,6 @@ final class OptimizerEngine {
                 ranked: ranked,
                 limit: limit
             )
-
-            if ProcessInfo.processInfo.environment["EUROOPT_C40_HOLDOUT"] == "1" {
-                runC40HoldoutComparison(
-                    draws: draws,
-                    recommendationCount: limit
-                )
-            }
         }
 
         var result: [(ticket: Ticket, score: Double)] = []

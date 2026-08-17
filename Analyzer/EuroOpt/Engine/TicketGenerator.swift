@@ -15,7 +15,8 @@ final class TicketGenerator {
         count: Int,
         draws: [EuroJackpotDraw],
         goal: OptimizationGoal = OptimizationGoal(),
-        hillClimbingIterations: Int = AppSettings.hillClimbingIterations
+        hillClimbingIterations: Int = AppSettings.hillClimbingIterations,
+        useQuickScore: Bool = true
     ) -> [Ticket] {
 
         print("🎲 Erzeuge \(count) Spielsysteme...")
@@ -31,17 +32,33 @@ final class TicketGenerator {
 
         print("✅ Spielsysteme erzeugt: \(candidates.count)")
 
-        candidates.sort { $0.quick > $1.quick }
-
-        let survivorCount: Int
-        if count == AppSettings.backtestCandidateCount {
-            survivorCount = min(AppSettings.backtestSurvivorCount, candidates.count)
-        } else {
-            survivorCount = max(count / 20, AppSettings.recommendationCount * 20)
+        if useQuickScore {
+            candidates.sort { $0.quick > $1.quick }
         }
 
-        let survivors = Array(candidates.prefix(survivorCount))
-        print("🎯 Nach QuickScore übrig: \(survivors.count) Spielsysteme")
+        let survivorCount: Int
+        if useQuickScore {
+            if count == AppSettings.backtestCandidateCount {
+                survivorCount = min(AppSettings.backtestSurvivorCount, candidates.count)
+            } else {
+                survivorCount = max(count / 20, AppSettings.recommendationCount * 20)
+            }
+        } else {
+            survivorCount = candidates.count
+        }
+
+        let survivors: [(ticket: Ticket, quick: Double)]
+
+        if useQuickScore {
+            survivors = Array(candidates.prefix(survivorCount))
+        } else {
+            survivors = candidates
+        }
+        print(
+            useQuickScore
+                ? "🎯 Nach QuickScore übrig: \(survivors.count) Spielsysteme"
+                : "🎯 QuickScore deaktiviert – alle \(survivors.count) Spielsysteme weiter"
+        )
 
         let start = Date()
         let scoreCache = ScoreCache(draws: draws)

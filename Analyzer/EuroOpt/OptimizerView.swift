@@ -25,6 +25,7 @@ struct OptimizerView: View {
                 learningSection
                 holdoutSection
                 robustnessSection
+                historyWindowSection
                 f2AlphaFilterSection
                 randomBenchmarkSection
                 normalDistributionSection
@@ -137,6 +138,320 @@ struct OptimizerView: View {
                 .disabled(viewModel.isRobustnessRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || f2AlphaFilterRunning)
 
                 Text(viewModel.robustnessStatus).font(.footnote).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var historyWindowSection: some View {
+        GroupBox("🔬 Alpha 7.6 History-Window-Test") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Vergleicht die gesamte Historie mit den letzten 300, 200, 150 und 100 Ziehungen. Der Test läuft ausschließlich als separate Diagnose und verändert den Produktions-Optimizer nicht.")
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    viewModel.runHistoryWindowTest()
+                } label: {
+                    if viewModel.isHistoryWindowRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("History-Window-Test starten", systemImage: "clock.arrow.circlepath")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Text(viewModel.historyWindowStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runHistoryWindowRobustnessTest()
+                } label: {
+                    if viewModel.isHistoryWindowRobustnessRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("History-Window-Robustheit starten", systemImage: "waveform.path.ecg")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Text(viewModel.historyWindowRobustnessStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runHistoryWindowPairTest()
+                } label: {
+                    if viewModel.isHistoryWindowPairRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("W150/W300-Paarvergleich starten", systemImage: "arrow.left.arrow.right")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Text(viewModel.historyWindowPairStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runHistoryWindowFullPairTest()
+                } label: {
+                    if viewModel.isHistoryWindowFullPairRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("FULL/W300-Paarvergleich starten", systemImage: "arrow.left.arrow.right")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Text(viewModel.historyWindowFullPairStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runConcentrationWeightDiagnostic()
+                } label: {
+                    if viewModel.isConcentrationWeightDiagnosticRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("Alpha/Konzentration-Ablation starten", systemImage: "chart.bar.xaxis")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isConcentrationWeightDiagnosticRunning ||
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Text(viewModel.concentrationWeightDiagnosticStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runConcentrationPairTest()
+                } label: {
+                    if viewModel.isConcentrationPairRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("A70C30/A60C40-Paarvergleich starten", systemImage: "arrow.left.arrow.right")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isConcentrationPairRunning ||
+                    viewModel.isConcentrationWeightDiagnosticRunning ||
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Text(viewModel.concentrationPairStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runRecommendationStabilityTest()
+                } label: {
+                    if viewModel.isRecommendationStabilityRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("Empfehlungs-Stabilität testen", systemImage: "arrow.triangle.2.circlepath")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRecommendationStabilityRunning ||
+                    viewModel.isConcentrationPairRunning ||
+                    viewModel.isConcentrationWeightDiagnosticRunning ||
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Text(viewModel.recommendationStabilityStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runNumberFrequencyTest()
+                } label: {
+                    if viewModel.isNumberFrequencyRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("Zahlen-Frequenz gegen Zufall testen", systemImage: "chart.bar.xaxis")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isNumberFrequencyRunning ||
+                    viewModel.isRecommendationStabilityRunning ||
+                    viewModel.isConcentrationPairRunning ||
+                    viewModel.isConcentrationWeightDiagnosticRunning ||
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Text(viewModel.numberFrequencyStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runNumberComponentAblationTest()
+                } label: {
+                    if viewModel.isNumberComponentAblationRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("Score-Komponenten analysieren", systemImage: "chart.bar.doc.horizontal")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isNumberComponentAblationRunning ||
+                    viewModel.isNumberFrequencyRunning ||
+                    viewModel.isRecommendationStabilityRunning ||
+                    viewModel.isConcentrationPairRunning ||
+                    viewModel.isConcentrationWeightDiagnosticRunning ||
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Text(viewModel.numberComponentAblationStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
