@@ -54,6 +54,13 @@ final class OptimizerEngine {
             )
         }
 
+        if ProcessInfo.processInfo.environment["EUROOPT_C40_HOLDOUT"] == "1" {
+            runC40HoldoutComparison(
+                draws: draws,
+                recommendationCount: limit
+            )
+        }
+
         var result: [(ticket: Ticket, score: Double)] = []
         result.reserveCapacity(limit)
 
@@ -220,7 +227,7 @@ final class OptimizerEngine {
         print("================================")
     }
 
-    private func runC40HoldoutComparison(
+    func runC40HoldoutComparison(
         draws: [EuroJackpotDraw],
         recommendationCount: Int
     ) {

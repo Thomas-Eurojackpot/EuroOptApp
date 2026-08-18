@@ -46,7 +46,12 @@ final class OptimizerViewModel: ObservableObject {
     @Published var historyWindowFullPairStatus = "Noch kein FULL/W300-Paarvergleich gestartet"
 
     @Published var isConcentrationWeightDiagnosticRunning = false
+    @Published var isConcentrationHistoryRunning = false
+    @Published var concentrationHistoryStatus = "Noch keine Konzentrations-History-Diagnose gestartet"
+
     @Published var concentrationWeightDiagnosticStatus = "Noch kein Alpha/Konzentration-Ablationstest gestartet"
+    @Published var isF2HistoryWindowDiagnosticRunning = false
+    @Published var f2HistoryWindowDiagnosticStatus = "Noch kein F2-History-Test gestartet"
 
     @Published var isConcentrationPairRunning = false
     @Published var concentrationPairStatus = "Noch kein A70C30/A60C40-Paarvergleich gestartet"
@@ -92,7 +97,7 @@ final class OptimizerViewModel: ObservableObject {
 
         var text = """
 🎯 EuroOpt – Top \(reports.count) Empfehlungen
-🍀 Erstellt mit EuroOpt Alpha 7.6
+🍀 Erstellt mit EuroOpt Alpha 7.7
 
 """
 
@@ -176,16 +181,41 @@ final class OptimizerViewModel: ObservableObject {
 
         print("🥇 Beste Spielsysteme: \(bestTickets.count)")
 
+        // ============================================================
+        // ALPHA 7.7
+        // Recency 50 / Top 2 Eurozahlen
+        //
+        // Hauptzahlen und Ticket-Ranking bleiben unverändert.
+        // Nur die beiden Eurozahlen werden ersetzt.
+        // ============================================================
+
+        let recency50EuroNumbers = euroRecency50TopTwo(
+            draws: draws
+        )
+
+        print(
+            "🎯 Alpha 7.7 – Recency 50 Eurozahlen: " +
+            recency50EuroNumbers.map(String.init).joined(separator: ", ")
+        )
+
+        let finalTickets = bestTickets.map { result in
+            Ticket(
+                numbers: result.ticket.numbers,
+                euroNumbers: recency50EuroNumbers
+            )
+        }
+
         let eqiCalculator = EQICalculator()
 
-        reports = bestTickets.map { result in
+        reports = zip(bestTickets, finalTickets).map { result, finalTicket in
+
             let eqi = eqiCalculator.calculate(
-                ticket: result.ticket,
+                ticket: finalTicket,
                 draws: draws
             )
 
             return OptimizerReport(
-                ticket: result.ticket,
+                ticket: finalTicket,
                 eqi: EQI(value: eqi)
             )
         }
@@ -298,6 +328,353 @@ final class OptimizerViewModel: ObservableObject {
         }
     }
 
+    func runEuroFrequencyHoldoutDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroFrequencyHoldoutDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecencyGapHoldoutDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecencyGapHoldoutDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50DepthDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50DepthDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecencyWindowDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecencyWindowDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50ConfirmationDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50ConfirmationDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50RollingDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50RollingDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50RegimeDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50RegimeDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50WalkForwardDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50WalkForwardDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50StabilityDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50StabilityDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50OutOfSampleDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50OutOfSampleDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50MultiOutOfSampleDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50MultiOutOfSampleDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50FullWalkForwardDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50FullWalkForwardDiagnostic().run(
+                draws: draws
+            )
+        }
+    }
+
+    func runEuroRecency50StrategyHoldoutDiagnostic() {
+        guard
+            !isRandomBenchmarkRunning,
+            !isHoldoutRunning,
+            !isLearning,
+            !isCalculating,
+            !isBacktestRunning,
+            !isParityRunning,
+            !isNormalDistributionRunning,
+            !isMoonPhaseRunning,
+            !isConfirmationRunning
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            EuroRecency50StrategyHoldoutDiagnostic().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+        }
+    }
+
+    private func euroRecency50TopTwo(
+        draws: [EuroJackpotDraw]
+    ) -> [Int] {
+
+        let window = 50
+
+        guard draws.count >= window else {
+            return []
+        }
+
+        let recentDraws = draws.suffix(window)
+
+        var frequencies: [Int: Int] = [:]
+
+        for draw in recentDraws {
+            for number in draw.euroNumbers {
+                frequencies[number, default: 0] += 1
+            }
+        }
+
+        let ranked = frequencies.keys.sorted {
+            let lhs = frequencies[$0] ?? 0
+            let rhs = frequencies[$1] ?? 0
+
+            if lhs == rhs {
+                return $0 < $1
+            }
+
+            return lhs > rhs
+        }
+
+        return Array(ranked.prefix(2))
+    }
+
     func runRandomBenchmark() {
         guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
 
@@ -313,13 +690,49 @@ final class OptimizerViewModel: ObservableObject {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+
             RandomBenchmarkEngine().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+
+            Alpha76RandomBenchmarkEngine().run(
                 draws: draws,
                 recommendationCount: AppSettings.recommendationCount
             )
 
             DispatchQueue.main.async {
                 self.randomBenchmarkStatus = "Zufallsbenchmark beendet – Ergebnis im Konsolen-Output"
+                self.isRandomBenchmarkRunning = false
+            }
+        }
+    }
+
+    func runAlpha76RandomBenchmark() {
+        guard !isRandomBenchmarkRunning,
+              !isHoldoutRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning,
+              !isParityRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isConfirmationRunning else { return }
+
+        let draws = database.allDraws()
+        isRandomBenchmarkRunning = true
+        randomBenchmarkStatus = "Alpha 7.6 Zufallsbenchmark läuft..."
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            Alpha76RandomBenchmarkEngine().run(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
+
+            DispatchQueue.main.async {
+                self.randomBenchmarkStatus = "Alpha 7.6 Zufallsbenchmark beendet – Ergebnis im Konsolen-Output"
                 self.isRandomBenchmarkRunning = false
             }
         }
@@ -423,7 +836,7 @@ final class OptimizerViewModel: ObservableObject {
             WeightSweepRobustnessAnalyzer().run(
                 draws: draws,
                 recommendationCount: AppSettings.recommendationCount,
-                splitCount: 10
+                splitCount: 20
             )
 
             DispatchQueue.main.async {
@@ -542,7 +955,7 @@ final class OptimizerViewModel: ObservableObject {
             HistoryWindowPairDiagnostic().run(
                 draws: draws,
                 recommendationCount: AppSettings.recommendationCount,
-                splitCount: 10
+                splitCount: 20
             )
 
             DispatchQueue.main.async {
@@ -594,6 +1007,71 @@ final class OptimizerViewModel: ObservableObject {
         }
     }
 
+    func runConcentrationHistoryDiagnostic() {
+
+        guard !isConcentrationHistoryRunning,
+              !isConcentrationWeightDiagnosticRunning,
+              !isConcentrationPairRunning,
+              !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        isConcentrationHistoryRunning = true
+        concentrationHistoryStatus =
+            "Konzentrations-History-Diagnose läuft..."
+
+        print("===================================")
+        print("🔬 KONZENTRATION – HISTORY-WINDOW")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-Optimizer bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+
+            guard let self else { return }
+
+            ConcentrationHistoryWindowDiagnostic().run(
+                draws: draws,
+                recommendationCount:
+                    AppSettings.recommendationCount,
+                splitCount: 20
+            )
+
+            DispatchQueue.main.async {
+
+                self.concentrationHistoryStatus =
+                    "Konzentrations-History-Diagnose beendet – Ergebnisse im Konsolen-Output"
+
+                self.isConcentrationHistoryRunning = false
+            }
+        }
+    }
+
+    func runF2ConcentrationCombinationDiagnostic() {
+        let draws = database.allDraws()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            F2ConcentrationCombinationDiagnostic().run(
+                draws: draws,
+                splitCount: 20
+            )
+        }
+    }
+
     func runConcentrationWeightDiagnostic() {
         guard !isConcentrationWeightDiagnosticRunning,
               !isHistoryWindowFullPairRunning,
@@ -627,13 +1105,95 @@ final class OptimizerViewModel: ObservableObject {
             ConcentrationWeightDiagnostic().run(
                 draws: draws,
                 recommendationCount: AppSettings.recommendationCount,
-                splitCount: 10
+                splitCount: 20
             )
 
             DispatchQueue.main.async {
                 self.concentrationWeightDiagnosticStatus = "Alpha/Konzentration-Ablation beendet – Ergebnisse im Konsolen-Output"
                 self.isConcentrationWeightDiagnosticRunning = false
             }
+        }
+    }
+
+
+    func runF2HistoryWindowDiagnostic() {
+
+        guard !isF2HistoryWindowDiagnosticRunning,
+              !isConcentrationWeightDiagnosticRunning,
+              !isConcentrationPairRunning,
+              !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isLearning,
+              !isCalculating
+        else {
+            return
+        }
+
+        let draws = database.allDraws()
+
+        isF2HistoryWindowDiagnosticRunning = true
+        f2HistoryWindowDiagnosticStatus =
+            "F2-History-Test läuft..."
+
+        print("===================================")
+        print("🔬 F2 HISTORY-WINDOW DIAGNOSTIC")
+        print("===================================")
+        print("🔒 Separater Diagnostic-Test.")
+        print("🔒 Produktions-F2/50 bleibt unverändert.")
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+
+            F2HistoryWindowDiagnostic().run(
+                draws: draws,
+                splitCount: 20
+            )
+
+            DispatchQueue.main.async {
+                self.f2HistoryWindowDiagnosticStatus =
+                    "F2-History-Test beendet – Ergebnisse im Konsolen-Output"
+
+                self.isF2HistoryWindowDiagnosticRunning = false
+            }
+        }
+    }
+
+
+    func runC40HoldoutTest() {
+        guard !isConcentrationWeightDiagnosticRunning,
+              !isConcentrationPairRunning,
+              !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isRobustnessRunning,
+              !isConfirmationRunning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isLearning,
+              !isCalculating,
+              !isBacktestRunning else { return }
+
+        let draws = database.allDraws()
+
+        print("===================================")
+        print("🧪 C40 HOLDOUT-VERGLEICH")
+        print("===================================")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            OptimizerEngine().runC40HoldoutComparison(
+                draws: draws,
+                recommendationCount: AppSettings.recommendationCount
+            )
         }
     }
 
@@ -769,6 +1329,40 @@ final class OptimizerViewModel: ObservableObject {
                 self.numberFrequencyStatus = "Zahlen-Frequenz-Test beendet – Ergebnisse im Konsolen-Output"
                 self.isNumberFrequencyRunning = false
             }
+        }
+    }
+
+    func runScoreGapDiagnostic() {
+        guard !isCalculating,
+              !isBacktestRunning,
+              !isLearning,
+              !isHoldoutRunning,
+              !isRandomBenchmarkRunning,
+              !isNormalDistributionRunning,
+              !isMoonPhaseRunning,
+              !isConfirmationRunning,
+              !isRobustnessRunning,
+              !isConcentrationWeightDiagnosticRunning,
+              !isConcentrationPairRunning,
+              !isHistoryWindowFullPairRunning,
+              !isHistoryWindowPairRunning,
+              !isHistoryWindowRobustnessRunning,
+              !isHistoryWindowRunning,
+              !isNumberFrequencyRunning,
+              !isNumberComponentAblationRunning,
+              !isRecommendationStabilityRunning else { return }
+
+        let draws = database.allDraws()
+
+        print("===================================")
+        print("🔬 SCORE-GAP-DIAGNOSE")
+        print("===================================")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            ScoreGapDiagnostic().run(
+                draws: draws,
+                candidateCount: max(AppSettings.backtestCandidateCount + 1, 301)
+            )
         }
     }
 

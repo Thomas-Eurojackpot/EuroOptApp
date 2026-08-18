@@ -15,7 +15,7 @@ final class RandomBenchmarkEngine {
         let goal: OptimizationGoal
     }
 
-    private let monteCarloRuns = 50
+    private let monteCarloRuns = 200
     private let candidateCountMinimum = 301
 
     // Alpha 7.5 profile selected previously on the Validation half.
@@ -182,7 +182,7 @@ final class RandomBenchmarkEngine {
         print("")
         print("Statistik:")
         print("- Gepaarter Vergleich: jedes Monte-Carlo-Ergebnis wird gegen dasselbe feste Modellprofil gestellt.")
-        print("- 95-%-KI basiert auf den 50 unabhängigen Monte-Carlo-Replikationen.")
+        print("- 95-%-KI basiert auf den 200 unabhängigen Monte-Carlo-Replikationen.")
         print("- Ein KI, das 0 nicht einschließt, wäre ein Hinweis auf einen stabilen Unterschied im Benchmark.")
         print("- Das Alpha-7.5-Profil wurde im Benchmark weder neu gewählt noch verändert.")
         print("- Der Holdout wurde nicht zur Gewichtswahl verwendet.")
