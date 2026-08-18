@@ -1,0 +1,624 @@
+diff --git a/Analyzer/EuroOpt/Models/OptimizerViewModel.swift b/Analyzer/EuroOpt/Models/OptimizerViewModel.swift
+index ae1d32b..38c1335 100644
+--- a/Analyzer/EuroOpt/Models/OptimizerViewModel.swift
++++ b/Analyzer/EuroOpt/Models/OptimizerViewModel.swift
+@@ -1,4 +1,3 @@
+-
+ import Foundation
+ import Combine
+ 
+@@ -34,6 +33,9 @@ final class OptimizerViewModel: ObservableObject {
+     @Published var isRobustnessRunning = false
+     @Published var robustnessStatus = "Noch keine Robustheitsanalyse gestartet"
+ 
++    @Published var isF2AlphaFilterRunning = false
++    @Published var f2AlphaFilterStatus = "Noch kein F2/50 → Alpha-Kontrollfilter gestartet"
++
+     @Published var isLearning = false
+     @Published var learningStatus = "Noch kein Lernlauf gestartet"
+     @Published var learnedGoal = OptimizationGoalStore.shared.currentGoal
+@@ -48,51 +50,59 @@ final class OptimizerViewModel: ObservableObject {
+     var learnedProfileText: String {
+         let goal = learnedGoal
+         return String(
+-            format: "F %.0f  |  P %.0f  |  G/U %.0f  |  H/N %.0f  |  S %.0f  |  A %.0f",
++            format: "F %.0f | P %.0f | G/U %.0f | H/N %.0f | S %.0f | A %.0f",
+             goal.frequencyWeight,
+             goal.pairWeight,
+             goal.evenOddWeight,
+             goal.highLowWeight,
+             goal.sumWeight,
+             goal.gapWeight
+-        )
+     }
+ 
+     var shareText: String {
+-        guard !reports.isEmpty else { return "Noch keine Empfehlungen vorhanden." }
++        guard !reports.isEmpty else {
++            return "Noch keine Empfehlungen vorhanden."
++        }
+ 
+         var text = """
+-🎯 EuroOpt – Top \(reports.count) Empfehlungen
++        🎯 EuroOpt – Top \(reports.count) Empfehlungen
+ 
+-🍀 Erstellt mit EuroOpt Alpha 7.5
++        🍀 Erstellt mit EuroOpt Alpha 7.5
+ 
+-────────────────────
++        ────────────────────
++
++        """
+ 
+-"""
+         let medals = ["🥇", "🥈", "🥉"]
++
+         for (index, report) in reports.enumerated() {
+             let medal = index < medals.count ? medals[index] : "⭐"
++
+             text += """
+-\(medal) Empfehlung \(index + 1)
++            \(medal) Empfehlung \(index + 1)
+ 
+-🎲 Hauptzahlen
+-\(report.ticket.numbers.map(String.init).joined(separator: " • "))
++            🎲 Hauptzahlen
++            \(report.ticket.numbers.map(String.init).joined(separator: " • "))
+ 
+-⭐ Eurozahlen
+-\(report.ticket.euroNumbers.map(String.init).joined(separator: " • "))
++            ⭐ Eurozahlen
++            \(report.ticket.euroNumbers.map(String.init).joined(separator: " • "))
+ 
+-📈 EQI: \(String(format: "%.1f", report.eqi.value).replacingOccurrences(of: ".", with: ","))
++            📈 EQI: \(String(format: "%.1f", report.eqi.value).replacingOccurrences(of: ".", with: ","))
+ 
+-\(report.recommendation)
++            \(report.recommendation)
+ 
+-────────────────────
++            ────────────────────
+ 
+-"""
++            """
+         }
++
+         text += "🍀 Viel Glück!"
++
+         return text
+     }
+ 
++    // MARK: - Empfehlungen
++
+     func calculateRecommendations(candidateCount: Int, recommendationCount: Int) {
+         print("================================")
+         print("🎯 Gewählte Spielsysteme: \(candidateCount)")
+@@ -101,12 +111,18 @@ final class OptimizerViewModel: ObservableObject {
+         print("================================")
+ 
+         isCalculating = true
++
+         let start = Date()
+         let draws = database.allDraws()
+         let goal = OptimizationGoalStore.shared.currentGoal
+ 
+         print("📊 Ziehungen geladen: \(draws.count)")
+-        let candidates = generator.generate(count: candidateCount, draws: draws, goal: goal)
++
++        let candidates = generator.generate(
++            count: candidateCount,
++            draws: draws,
++            goal: goal
++
+         print("🎲 Erzeugte Spielsysteme: \(candidates.count)")
+ 
+         let bestTickets = optimizer.bestTickets(
+@@ -114,22 +130,47 @@ final class OptimizerViewModel: ObservableObject {
+             draws: draws,
+             goal: goal,
+             limit: recommendationCount
+-        )
+ 
+         print("🥇 Beste Spielsysteme: \(bestTickets.count)")
+-        reports = bestTickets.map { OptimizerReport(ticket: $0.ticket, eqi: EQI(value: $0.score)) }
++
++        reports = bestTickets.map {
++            OptimizerReport(
++                ticket: $0.ticket,
++                eqi: EQI(value: $0.score)
++        }
+ 
+         print("--------------------------------")
+-        print(String(format: "⏱ Gesamtzeit: %.2f Sekunden", Date().timeIntervalSince(start)))
++        print(
++            String(
++                format: "⏱ Gesamtzeit: %.2f Sekunden",
++                Date().timeIntervalSince(start)
+         print("--------------------------------")
++
+         isCalculating = false
+     }
+ 
++    // MARK: - Lernen
++
+     func startLearning() {
+-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isParityRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
++        guard
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isHoldoutRunning,
++            !isParityRunning,
++            !isRandomBenchmarkRunning,
++            !isNormalDistributionRunning,
++            !isMoonPhaseRunning,
++            !isConfirmationRunning,
++            !isRobustnessRunning,
++            !isF2AlphaFilterRunning
++        else {
++            return
++        }
+ 
+         let draws = database.allDraws()
+         let recommendationCount = AppSettings.recommendationCount
++
+         isLearning = true
+         learningStatus = "Walk-Forward-Lernen läuft..."
+         learningResult = nil
+@@ -140,11 +181,13 @@ final class OptimizerViewModel: ObservableObject {
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             guard let self else { return }
++
+             let result = self.learningEngine.learn(
+                 draws: draws,
+                 recommendationCount: recommendationCount,
+-                candidateCount: max(AppSettings.backtestCandidateCount + 1, 501)
+-            )
++                candidateCount: max(
++                    AppSettings.backtestCandidateCount + 1,
++                    501
+ 
+             DispatchQueue.main.async {
+                 self.learnedGoal = result.goal
+@@ -156,19 +199,52 @@ final class OptimizerViewModel: ObservableObject {
+     }
+ 
+     func resetLearnedWeights() {
+-        guard !isLearning, !isCalculating, !isBacktestRunning, !isHoldoutRunning, !isParityRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
++        guard
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isHoldoutRunning,
++            !isParityRunning,
++            !isRandomBenchmarkRunning,
++            !isNormalDistributionRunning,
++            !isMoonPhaseRunning,
++            !isConfirmationRunning,
++            !isRobustnessRunning,
++            !isF2AlphaFilterRunning
++        else {
++            return
++        }
++
+         OptimizationGoalStore.shared.reset()
+         learnedGoal = OptimizationGoalStore.shared.currentGoal
+         learningResult = nil
+         learningStatus = "Standardprofil wiederhergestellt"
+     }
+ 
++    // MARK: - Holdout
++
+     func runHoldoutTest() {
+-        guard !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
++        guard
++            !isHoldoutRunning,
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isParityRunning,
++            !isRandomBenchmarkRunning,
++            !isNormalDistributionRunning,
++            !isMoonPhaseRunning,
++            !isConfirmationRunning,
++            !isRobustnessRunning,
++            !isF2AlphaFilterRunning
++        else {
++            return
++        }
+ 
+         let draws = database.allDraws()
++
+         isHoldoutRunning = true
+-        holdoutStatus = "Holdout-Test läuft – Validation und Holdout werden getrennt geprüft..."
++        holdoutStatus =
++            "Holdout-Test läuft – Validation und Holdout werden getrennt geprüft..."
+ 
+         print("===================================")
+         print("🧪 ALPHA 7.5 HOLDOUT-TEST")
+@@ -177,24 +253,43 @@ final class OptimizerViewModel: ObservableObject {
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             guard let self else { return }
++
+             WeightSweepEngine().run(
+                 draws: draws,
+                 recommendationCount: AppSettings.recommendationCount
+-            )
+ 
+             DispatchQueue.main.async {
+-                self.holdoutStatus = "Holdout-Test beendet – Ergebnis im Konsolen-Output"
++                self.holdoutStatus =
++                    "Holdout-Test beendet – Ergebnis im Konsolen-Output"
+                 self.isHoldoutRunning = false
+             }
+         }
+     }
+ 
++    // MARK: - Weight Sweep Parität
++
+     func runWeightSweepParityTest() {
+-        guard !isParityRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
++        guard
++            !isParityRunning,
++            !isHoldoutRunning,
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isRandomBenchmarkRunning,
++            !isNormalDistributionRunning,
++            !isMoonPhaseRunning,
++            !isConfirmationRunning,
++            !isRobustnessRunning,
++            !isF2AlphaFilterRunning
++        else {
++            return
++        }
+ 
+         let draws = database.allDraws()
++
+         isParityRunning = true
+-        parityStatus = "Paritätstest läuft – Engine und Core erhalten dieselben Kandidaten..."
++        parityStatus =
++            "Paritätstest läuft – Engine und Core erhalten dieselben Kandidaten..."
+ 
+         print("===================================")
+         print("🔬 WEIGHT-SWEEP PARITÄTSTEST")
+@@ -204,24 +299,43 @@ final class OptimizerViewModel: ObservableObject {
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             guard let self else { return }
++
+             WeightSweepParityTest().run(
+                 draws: draws,
+                 recommendationCount: AppSettings.recommendationCount
+-            )
+ 
+             DispatchQueue.main.async {
+-                self.parityStatus = "Paritätstest beendet – Ergebnis im Konsolen-Output"
++                self.parityStatus =
++                    "Paritätstest beendet – Ergebnis im Konsolen-Output"
+                 self.isParityRunning = false
+             }
+         }
+     }
+ 
++    // MARK: - Zufallsbenchmark
++
+     func runRandomBenchmark() {
+-        guard !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
++        guard
++            !isRandomBenchmarkRunning,
++            !isHoldoutRunning,
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isParityRunning,
++            !isNormalDistributionRunning,
++            !isMoonPhaseRunning,
++            !isConfirmationRunning,
++            !isRobustnessRunning,
++            !isF2AlphaFilterRunning
++        else {
++            return
++        }
+ 
+         let draws = database.allDraws()
++
+         isRandomBenchmarkRunning = true
+-        randomBenchmarkStatus = "Zufallsbenchmark läuft – gleiche Holdout-Bedingungen..."
++        randomBenchmarkStatus =
++            "Zufallsbenchmark läuft – gleiche Holdout-Bedingungen..."
+ 
+         print("===================================")
+         print("🎲 EMPIRISCHER ZUFALLSBENCHMARK")
+@@ -231,24 +345,43 @@ final class OptimizerViewModel: ObservableObject {
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             guard let self else { return }
++
+             RandomBenchmarkEngine().run(
+                 draws: draws,
+                 recommendationCount: AppSettings.recommendationCount
+-            )
+ 
+             DispatchQueue.main.async {
+-                self.randomBenchmarkStatus = "Zufallsbenchmark beendet – Ergebnis im Konsolen-Output"
++                self.randomBenchmarkStatus =
++                    "Zufallsbenchmark beendet – Ergebnis im Konsolen-Output"
+                 self.isRandomBenchmarkRunning = false
+             }
+         }
+     }
+ 
++    // MARK: - Normalverteilung
++
+     func runNormalDistributionTest() {
+-        guard !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning, !isMoonPhaseRunning, !isConfirmationRunning else { return }
++        guard
++            !isNormalDistributionRunning,
++            !isRandomBenchmarkRunning,
++            !isHoldoutRunning,
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isParityRunning,
++            !isMoonPhaseRunning,
++            !isConfirmationRunning,
++            !isRobustnessRunning,
++            !isF2AlphaFilterRunning
++        else {
++            return
++        }
+ 
+         let draws = database.allDraws()
++
+         isNormalDistributionRunning = true
+-        normalDistributionStatus = "Normalverteilungstest läuft – Alpha 7.5 bleibt unverändert..."
++        normalDistributionStatus =
++            "Normalverteilungstest läuft – Alpha 7.5 bleibt unverändert..."
+ 
+         print("===================================")
+         print("📐 NORMALVERTEILUNG – ISOLIERTER TEST")
+@@ -258,24 +391,43 @@ final class OptimizerViewModel: ObservableObject {
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             guard let self else { return }
++
+             NormalDistributionTestEngine().run(
+                 draws: draws,
+                 recommendationCount: AppSettings.recommendationCount
+-            )
+ 
+             DispatchQueue.main.async {
+-                self.normalDistributionStatus = "Normalverteilungstest beendet – Ergebnis im Konsolen-Output"
++                self.normalDistributionStatus =
++                    "Normalverteilungstest beendet – Ergebnis im Konsolen-Output"
+                 self.isNormalDistributionRunning = false
+             }
+         }
+     }
+ 
++    // MARK: - Mondphase
++
+     func runMoonPhaseTest() {
+-        guard !isMoonPhaseRunning, !isNormalDistributionRunning, !isRandomBenchmarkRunning, !isHoldoutRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning, !isConfirmationRunning else { return }
++        guard
++            !isMoonPhaseRunning,
++            !isNormalDistributionRunning,
++            !isRandomBenchmarkRunning,
++            !isHoldoutRunning,
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isParityRunning,
++            !isConfirmationRunning,
++            !isRobustnessRunning,
++            !isF2AlphaFilterRunning
++        else {
++            return
++        }
+ 
+         let draws = database.allDraws()
++
+         isMoonPhaseRunning = true
+-        moonPhaseStatus = "Mondphasentest läuft – Phase wird nur aus Validation gewählt..."
++        moonPhaseStatus =
++            "Mondphasentest läuft – Phase wird nur aus Validation gewählt..."
+ 
+         print("===================================")
+         print("🌙 MONDPHASEN – ISOLIERTER TEST")
+@@ -285,24 +437,43 @@ final class OptimizerViewModel: ObservableObject {
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             guard let self else { return }
++
+             MoonPhaseEngine().run(
+                 draws: draws,
+                 recommendationCount: AppSettings.recommendationCount
+-            )
+ 
+             DispatchQueue.main.async {
+-                self.moonPhaseStatus = "Mondphasentest beendet – Ergebnis im Konsolen-Output"
++                self.moonPhaseStatus =
++                    "Mondphasentest beendet – Ergebnis im Konsolen-Output"
+                 self.isMoonPhaseRunning = false
+             }
+         }
+     }
+ 
++    // MARK: - G/U-Bestätigung
++
+     func runGUConfirmation() {
+-        guard !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isLearning, !isCalculating, !isBacktestRunning, !isParityRunning else { return }
++        guard
++            !isConfirmationRunning,
++            !isHoldoutRunning,
++            !isRandomBenchmarkRunning,
++            !isNormalDistributionRunning,
++            !isMoonPhaseRunning,
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isParityRunning,
++            !isRobustnessRunning,
++            !isF2AlphaFilterRunning
++        else {
++            return
++        }
+ 
+         let draws = database.allDraws()
++
+         isConfirmationRunning = true
+-        confirmationStatus = "G/U-Bestätigung läuft – Gewichte sind fest auf 100 % G/U..."
++        confirmationStatus =
++            "G/U-Bestätigung läuft – Gewichte sind fest auf 100 % G/U..."
+ 
+         print("===================================")
+         print("🧪 G/U-BESTÄTIGUNGS-TEST")
+@@ -311,24 +482,43 @@ final class OptimizerViewModel: ObservableObject {
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             guard let self else { return }
++
+             WeightSweepEngine().runGUConfirmation(
+                 draws: draws,
+                 recommendationCount: AppSettings.recommendationCount
+-            )
+ 
+             DispatchQueue.main.async {
+-                self.confirmationStatus = "G/U-Bestätigung beendet – Ergebnis im Konsolen-Output"
++                self.confirmationStatus =
++                    "G/U-Bestätigung beendet – Ergebnis im Konsolen-Output"
+                 self.isConfirmationRunning = false
+             }
+         }
+     }
+ 
++    // MARK: - Robustheitsanalyse
++
+     func runRobustnessAnalysis() {
+-        guard !isRobustnessRunning, !isConfirmationRunning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isLearning, !isCalculating, !isBacktestRunning else { return }
++        guard
++            !isRobustnessRunning,
++            !isConfirmationRunning,
++            !isHoldoutRunning,
++            !isRandomBenchmarkRunning,
++            !isNormalDistributionRunning,
++            !isMoonPhaseRunning,
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isParityRunning,
++            !isF2AlphaFilterRunning
++        else {
++            return
++        }
+ 
+         let draws = database.allDraws()
++
+         isRobustnessRunning = true
+-        robustnessStatus = "Robustheitsanalyse läuft – zehn zeitliche Validation/Holdout-Splits..."
++        robustnessStatus =
++            "Robustheitsanalyse läuft – zehn zeitliche Validation/Holdout-Splits..."
+ 
+         print("===================================")
+         print("🧪 ALPHA 7.5 ROBUSTHEITS-ANALYSE")
+@@ -338,24 +528,64 @@ final class OptimizerViewModel: ObservableObject {
+ 
+         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+             guard let self else { return }
++
+             WeightSweepRobustnessAnalyzer().run(
+                 draws: draws,
+                 recommendationCount: AppSettings.recommendationCount,
+                 splitCount: 10
+-            )
+ 
+             DispatchQueue.main.async {
+-                self.robustnessStatus = "Robustheitsanalyse beendet – Ergebnisse im Konsolen-Output"
++                self.robustnessStatus =
++                    "Robustheitsanalyse beendet – Ergebnisse im Konsolen-Output"
+                 self.isRobustnessRunning = false
+             }
+         }
+     }
+ 
++    // MARK: - F2/50 → Alpha Kontrollfilter
++
++    func runF2AlphaFilterAnalysis() {
++        guard
++            !isRobustnessRunning,
++            !isConfirmationRunning,
++            !isHoldoutRunning,
++            !isRandomBenchmarkRunning,
++            !isNormalDistributionRunning,
++            !isMoonPhaseRunning,
++            !isLearning,
++            !isCalculating,
++            !isBacktestRunning,
++            !isParityRunning
++        else {
++            return
++        }
++
++        let draws = database.allDraws()
++
++        print("===================================")
++        print("🔗 F2/50 KORRELATIONS-ANALYSE")
++        print("===================================")
++
++        DispatchQueue.global(qos: .userInitiated).async {
++            F2CorrelationAnalyzer().run(draws: draws)
++        }
++    }
++
++    // MARK: - Backtest
++
+     func runBacktest() {
+-        guard !isLearning, !isHoldoutRunning, !isRandomBenchmarkRunning, !isNormalDistributionRunning, !isMoonPhaseRunning, !isConfirmationRunning, !isParityRunning else { return }
++        guard !isLearning,
++              !isHoldoutRunning,
++              !isRandomBenchmarkRunning,
++              !isNormalDistributionRunning,
++              !isMoonPhaseRunning,
++              !isConfirmationRunning,
++              !isParityRunning else {
++            return
++        }
+ 
+         let draws = database.allDraws()
+-        isBacktestRunning = true
++    isBacktestRunning = true
+         backtestProgress = 0
+         backtestStatus = "Backtest läuft..."
+ 
+@@ -367,18 +597,24 @@ final class OptimizerViewModel: ObservableObject {
+                 candidateCount: AppSettings.backtestCandidateCount,
+                 recommendationCount: AppSettings.recommendationCount
+             ) { progress, current, total in
++
+                 DispatchQueue.main.async {
+                     self.backtestProgress = progress
+-                    self.backtestStatus = "\(current) von \(total) Ziehungen"
++                    self.backtestStatus =
++                        "\(current) von \(total) Ziehungen"
+                 }
+             }
+ 
+             let componentBacktest = ComponentBacktestEngine()
+-            componentBacktest.run(draws: draws, recommendationCount: AppSettings.recommendationCount)
++
++            componentBacktest.run(
++                draws: draws,
++                recommendationCount: AppSettings.recommendationCount
+ 
+             DispatchQueue.main.async {
+                 self.backtestProgress = 1.0
+-                self.backtestStatus = "Backtest + Komponententest beendet"
++                self.backtestStatus =
++                    "Backtest + Komponententest beendet"
+                 self.isBacktestRunning = false
+             }
+         }
