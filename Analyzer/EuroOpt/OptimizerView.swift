@@ -276,6 +276,54 @@ struct OptimizerView: View {
                 Divider()
 
                 Button {
+                    viewModel.runConcentrationHistoryDiagnostic()
+                } label: {
+                    if viewModel.isConcentrationHistoryRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label(
+                            "Konzentration-History analysieren",
+                            systemImage: "clock.arrow.circlepath"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isConcentrationHistoryRunning ||
+                    viewModel.isConcentrationWeightDiagnosticRunning ||
+                    viewModel.isConcentrationPairRunning ||
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runF2ConcentrationCombinationDiagnostic()
+                } label: {
+                    Label(
+                        "F2 + Konzentration Kombination testen",
+                        systemImage: "chart.xyaxis.line"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Divider()
+
+                Button {
                     viewModel.runConcentrationWeightDiagnostic()
                 } label: {
                     if viewModel.isConcentrationWeightDiagnosticRunning {
@@ -306,6 +354,31 @@ struct OptimizerView: View {
                 Text(viewModel.concentrationWeightDiagnosticStatus)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                Button {
+                    viewModel.runC40HoldoutTest()
+                } label: {
+                    Label("C40-Holdout-Vergleich starten", systemImage: "flask")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isConcentrationWeightDiagnosticRunning ||
+                    viewModel.isConcentrationPairRunning ||
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
 
                 Divider()
 
@@ -418,6 +491,36 @@ struct OptimizerView: View {
                 Divider()
 
                 Button {
+                    viewModel.runScoreGapDiagnostic()
+                } label: {
+                    Label("Score-Gap-Diagnose starten", systemImage: "chart.line.uptrend.xyaxis")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isNumberComponentAblationRunning ||
+                    viewModel.isNumberFrequencyRunning ||
+                    viewModel.isRecommendationStabilityRunning ||
+                    viewModel.isConcentrationPairRunning ||
+                    viewModel.isConcentrationWeightDiagnosticRunning ||
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
                     viewModel.runNumberComponentAblationTest()
                 } label: {
                     if viewModel.isNumberComponentAblationRunning {
@@ -473,6 +576,48 @@ struct OptimizerView: View {
                 .disabled(f2AlphaFilterRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isRandomBenchmarkRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning)
 
                 Text(f2AlphaFilterStatus).font(.footnote).foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runF2HistoryWindowDiagnostic()
+                } label: {
+                    if viewModel.isF2HistoryWindowDiagnosticRunning {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label(
+                            "F2-History-Fenster vergleichen",
+                            systemImage: "chart.line.uptrend.xyaxis"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isF2HistoryWindowDiagnosticRunning ||
+                    f2AlphaFilterRunning ||
+                    viewModel.isConcentrationWeightDiagnosticRunning ||
+                    viewModel.isConcentrationPairRunning ||
+                    viewModel.isHistoryWindowFullPairRunning ||
+                    viewModel.isHistoryWindowPairRunning ||
+                    viewModel.isHistoryWindowRobustnessRunning ||
+                    viewModel.isHistoryWindowRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning
+                )
+
+                Text(
+                    viewModel.f2HistoryWindowDiagnosticStatus
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -506,7 +651,332 @@ struct OptimizerView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(viewModel.isRandomBenchmarkRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
 
+                Divider()
+
+                Button { viewModel.runAlpha76RandomBenchmark() } label: {
+                    if viewModel.isRandomBenchmarkRunning {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("Alpha 7.6 Zufallsbenchmark starten", systemImage: "dice.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isRandomBenchmarkRunning || viewModel.isCalculating || viewModel.isBacktestRunning || viewModel.isLearning || viewModel.isHoldoutRunning || viewModel.isNormalDistributionRunning || viewModel.isConfirmationRunning || viewModel.isRobustnessRunning || f2AlphaFilterRunning)
+
                 Text(viewModel.randomBenchmarkStatus).font(.footnote).foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50StrategyHoldoutDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Strategie-Holdout",
+                        systemImage: "checkmark.seal"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50FullWalkForwardDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Full Walk-Forward",
+                        systemImage: "arrow.trianglehead.clockwise"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50MultiOutOfSampleDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Multi-Out-of-Sample",
+                        systemImage: "square.stack.3d.up"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50OutOfSampleDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Out-of-Sample testen",
+                        systemImage: "checkmark.seal"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50StabilityDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Stabilität testen",
+                        systemImage: "arrow.triangle.branch"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50WalkForwardDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Walk-Forward",
+                        systemImage: "arrow.trianglehead.clockwise"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50RegimeDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Regime testen",
+                        systemImage: "waveform.path.ecg"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50RollingDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Rolling-Test",
+                        systemImage: "chart.xyaxis.line"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50ConfirmationDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Bestätigung testen",
+                        systemImage: "checkmark.seal"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecencyWindowDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency-Fenster 20–100 testen",
+                        systemImage: "chart.bar.xaxis"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecency50DepthDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency 50 – Top 1–4 testen",
+                        systemImage: "chart.bar.xaxis"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroRecencyGapHoldoutDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen Recency / Gap testen",
+                        systemImage: "chart.line.uptrend.xyaxis"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
+
+                Divider()
+
+                Button {
+                    viewModel.runEuroFrequencyHoldoutDiagnostic()
+                } label: {
+                    Label(
+                        "Eurozahlen-Frequenz-Holdout testen",
+                        systemImage: "eurosign.circle"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(
+                    viewModel.isRandomBenchmarkRunning ||
+                    viewModel.isCalculating ||
+                    viewModel.isBacktestRunning ||
+                    viewModel.isLearning ||
+                    viewModel.isHoldoutRunning ||
+                    viewModel.isNormalDistributionRunning ||
+                    viewModel.isConfirmationRunning ||
+                    viewModel.isRobustnessRunning ||
+                    f2AlphaFilterRunning
+                )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
