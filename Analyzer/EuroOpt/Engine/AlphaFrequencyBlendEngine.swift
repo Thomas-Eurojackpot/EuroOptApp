@@ -36,7 +36,12 @@ final class AlphaFrequencyBlendEngine {
 
         let holdoutStart = draws.count - totalHoldout
         var windowResults: [AlphaFrequencyConfirmationResult.WindowResult] = []
+        var randomAccumulator = ValidationAggregate()
+
         var accumulators = variants.map { _ in HitAccumulator() }
+
+        var randomGenerator = AlphaFrequencyRandomGenerator(seed: 0x7A8F2026)
+
 
         for window in 0..<windowCount {
             let windowStart = holdoutStart + window * windowSize
@@ -54,6 +59,19 @@ final class AlphaFrequencyBlendEngine {
             for index in windowStart..<windowEnd {
                 let training = Array(draws.prefix(index))
                 let target = draws[index]
+
+                // ------------------------------------------------
+                // ZUFALL – exakt dieselbe Anzahl Tipps wie Alpha
+                // Keine Optimierung und keine Historienauswertung.
+                // ------------------------------------------------
+                let randomTickets = (0..<recommendationCount).map { _ in
+                    randomGenerator.makeTicket()
+                }
+
+                randomAccumulator.add(
+                    tickets: randomTickets,
+                    target: target
+                )
                 let candidates = generator.generate(
                     count: candidateCount,
                     draws: training,
@@ -108,7 +126,7 @@ final class AlphaFrequencyBlendEngine {
 
             let label: String
             if variant.f2 == 0 && variant.concentration == 0 {
-                label = "Alpha 7.5"
+                label = "Alpha 7.8"
             } else if variant.concentration == 0 {
                 label = "Alpha + F2 5%"
             } else if variant.f2 == 0 {
@@ -129,7 +147,7 @@ final class AlphaFrequencyBlendEngine {
         print("🧪 ALPHA + F2-BESTÄTIGUNGSTEST")
         print("===================================")
         print("Fenster: \(windowCount) × \(windowSize) = \(totalHoldout) Ziehungen")
-        print("Varianten: A=Alpha 7.5 | C=Alpha + Konzentration 30%")
+        print("Varianten: A=Alpha 7.8 | C=Alpha + Konzentration 30% | R=Zufall")
         print("Jedes Fenster wählt sein Alpha-Profil nur aus der vorher verfügbaren Historie.")
         print("")
         for window in windowResults {
@@ -148,6 +166,17 @@ final class AlphaFrequencyBlendEngine {
         for result in results {
             print(String(format: "%-42@ | %4d Punkte | Ø %.3f | 2+ Haupt: %3d", result.label, result.totalPoints, Double(result.totalPoints) / Double(totalHoldout * recommendationCount), result.higherHits))
         }
+        print("")
+        print("===== ZUFALLSBENCHMARK =====")
+        print(
+            String(
+                format: "Zufall | %4d Punkte | Ø %.3f | 2+ Haupt: %3d",
+                randomAccumulator.points,
+                Double(randomAccumulator.points)
+                    / Double(totalHoldout * recommendationCount),
+                randomAccumulator.higherHits
+            )
+        )
         print("===================================")
 
         return AlphaFrequencyConfirmationResult(
@@ -175,7 +204,13 @@ final class AlphaFrequencyBlendEngine {
             }
         }
 
-        return profiles.indices.max(by: { totals[$0].score < totals[$1].score }) ?? 0
+        return profiles.indices.max {
+            if totals[$0].points != totals[$1].points {
+                return totals[$0].points < totals[$1].points
+            }
+
+            return totals[$0].higherHits < totals[$1].higherHits
+        } ?? 0
     }
 
     private func frequencyScores(for tickets: [Ticket], draws: [EuroJackpotDraw]) -> [Double] {
@@ -232,16 +267,85 @@ final class AlphaFrequencyBlendEngine {
         return result
     }
 
-    private struct ValidationAggregate {
-        var mainHits = 0
-        var euroHits = 0
-        var tickets = 0
-        var score: Double { tickets > 0 ? Double(mainHits) / Double(tickets) - 0.50 + Double(euroHits) / Double(tickets) - 1.0 / 3.0 : 0 }
-        mutating func add(tickets: [Ticket], target: EuroJackpotDraw) {
-            for ticket in tickets {
-                mainHits += Set(ticket.numbers).intersection(target.numbers).count
-                euroHits += Set(ticket.euroNumbers).intersection(target.euroNumbers).count
+    private struct AlphaFrequencyRandomGenerator {
+
+        private var state: UInt64
+
+        init(seed: UInt64) {
+            self.state = seed
+        }
+
+        private mutating func next() -> UInt64 {
+            state = state &* 6364136223846793005
+                &+ 1442695040888963407
+            return state
+        }
+
+        private mutating func randomInt(_ upperBound: Int) -> Int {
+            Int(next() % UInt64(upperBound))
+        }
+
+        mutating func makeTicket() -> Ticket {
+
+            var numbers = Set<Int>()
+
+            while numbers.count < 5 {
+                numbers.insert(randomInt(50) + 1)
             }
+
+            var euroNumbers = Set<Int>()
+
+            while euroNumbers.count < 2 {
+                euroNumbers.insert(randomInt(12) + 1)
+            }
+
+            return Ticket(
+                numbers: numbers.sorted(),
+                euroNumbers: euroNumbers.sorted()
+            )
+        }
+    }
+
+    private struct ValidationAggregate {
+
+        var classes = Array(repeating: 0, count: 18)
+
+        var tickets = 0
+
+        var points: Int {
+            classes.enumerated().reduce(0) { total, item in
+                let main = item.offset / 3
+                let euro = item.offset % 3
+
+                return total
+                    + main * main * item.element
+                    + euro * item.element
+            }
+        }
+
+        var higherHits: Int {
+            classes.enumerated()
+                .filter { $0.offset / 3 >= 2 }
+                .reduce(0) { $0 + $1.element }
+        }
+
+        mutating func add(
+            tickets: [Ticket],
+            target: EuroJackpotDraw
+        ) {
+            for ticket in tickets {
+
+                let main = Set(ticket.numbers)
+                    .intersection(target.numbers)
+                    .count
+
+                let euro = Set(ticket.euroNumbers)
+                    .intersection(target.euroNumbers)
+                    .count
+
+                classes[main * 3 + euro] += 1
+            }
+
             self.tickets += tickets.count
         }
     }
