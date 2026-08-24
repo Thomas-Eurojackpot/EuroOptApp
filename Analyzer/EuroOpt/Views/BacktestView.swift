@@ -2,7 +2,7 @@
 //  BacktestView.swift
 //  EuroOpt
 //
-//  Alpha 6.5
+//  Backtest
 //
 
 import SwiftUI
@@ -44,54 +44,58 @@ struct BacktestView: View {
                             .foregroundStyle(.secondary)
 
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
+                        .frame(
+                            maxWidth: .infinity,
+                            alignment: .leading
+                        )
                     }
 
                     Button {
-
                         viewModel.runBacktest()
-
                     } label: {
 
                         if viewModel.isBacktestRunning {
-
                             ProgressView()
                                 .frame(maxWidth: .infinity)
-
                         } else {
-
                             Label(
                                 "Backtest starten",
                                 systemImage: "flask"
                             )
                             .frame(maxWidth: .infinity)
-
                         }
-
                     }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(viewModel.isBacktestRunning)
 
+                    Button {
+                        viewModel.runAlpha80VsRalfVsRandomBacktest()
+                    } label: {
+
+                        if viewModel.isBacktestRunning {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Label(
+                                "Alpha 8.0 vs Ralf vs Zufall",
+                                systemImage: "chart.bar.xaxis"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
                     .buttonStyle(.borderedProminent)
                     .disabled(viewModel.isBacktestRunning)
 
                     Spacer()
-
                 }
-
                 .padding()
-
             }
-
             .navigationTitle("Backtest")
-
         }
-
     }
-
 }
 
 #Preview {
-
     BacktestView()
-
 }
+
