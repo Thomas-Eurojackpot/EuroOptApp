@@ -171,4 +171,33 @@ final class OptimizerViewModel: ObservableObject {
 
     }
 
+    // MARK: - Alpha 8.0 vs Ralf vs Zufall
+
+    func runAlpha80VsRalfVsRandomBacktest() {
+
+        let draws = database.allDraws()
+
+        isBacktestRunning = true
+        backtestProgress = 0
+        backtestStatus = "Alpha 8.0 vs Ralf vs Zufall läuft..."
+
+        DispatchQueue.global(qos: .userInitiated).async {
+
+            Alpha80VsRalfVsRandomBacktestDiagnostic().run(
+                draws: draws,
+                candidateCount: AppSettings.backtestCandidateCount
+            )
+
+            DispatchQueue.main.async {
+
+                self.backtestProgress = 1.0
+                self.backtestStatus = "Alpha 8.0 vs Ralf vs Zufall beendet"
+                self.isBacktestRunning = false
+
+            }
+
+        }
+
+    }
+
 }
