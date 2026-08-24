@@ -156,7 +156,7 @@ final class Alpha80VsRalfVsRandomBacktestDiagnostic {
 
                 goal: OptimizationGoal(),
 
-                hillClimbingIterations: AppSettings.backtestHillClimbingIterations
+                hillClimbingIterations: 3
 
             )
 
